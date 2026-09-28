@@ -1,0 +1,2006 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="An interactive deep dive into SSH keys and asymmetric authentication: trapdoor functions, elliptic curves, key exchange, the SSH handshake step by step, every OpenSSH key type through the 2026 post-quantum work, recommendations, and a quiz.">
+<meta name="color-scheme" content="dark light">
+<title>Anatomy of an SSH Key</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Red+Hat+Mono:wght@400;500;600&family=Red+Hat+Text:ital,wght@0,400;0,500;0,700;1,400&display=swap">
+<style>
+:root{
+  color-scheme: dark;
+  --bg:#0c1117; --bg-2:#0f151c; --surface:#121a23; --surface-2:#17212c; --line:#233140; --line-2:#30425a;
+  --ink:#e0e7ef; --ink-2:#aebbc9; --muted:#7f8fa1;
+  --amber:#f0a63a; --amber-soft:rgba(240,166,58,.13); --amber-edge:rgba(240,166,58,.5);
+  --cyan:#52d0d8; --cyan-soft:rgba(82,208,216,.12); --cyan-edge:rgba(82,208,216,.48);
+  --lav:#b9a4ff; --lav-soft:rgba(185,164,255,.13); --lav-edge:rgba(185,164,255,.48);
+  --rose:#f3727e; --rose-soft:rgba(243,114,126,.13); --rose-edge:rgba(243,114,126,.5);
+  --good:#7fd596; --good-soft:rgba(127,213,150,.12); --warn:#e9c455; --warn-soft:rgba(233,196,85,.12);
+  --mark-amber:#c77c14; --mark-cyan:#18a0aa; --mark-rose:#d9546a; --grid:#1f2c39; --chart-bg:#121a23;
+  --focus:#52d0d8;
+  --term-bg:#080c11; --term-bar:#111820; --term-ink:#c9d3dd; --term-dim:#71818f; --term-amber:#f0a63a; --term-cyan:#52d0d8; --term-lav:#b9a4ff; --term-rose:#f3727e; --term-line:#1c2733; --term-hover:#121b25;
+  --f-display:"Big Shoulders Display","Arial Narrow","Roboto Condensed",Impact,sans-serif;
+  --f-body:"Red Hat Text","Segoe UI",system-ui,-apple-system,sans-serif;
+  --f-mono:"Red Hat Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    color-scheme: light;
+    --bg:#edf1f4; --bg-2:#e6ebef; --surface:#ffffff; --surface-2:#f5f8fa; --line:#d5dde4; --line-2:#bfcad4;
+    --ink:#111922; --ink-2:#3a4754; --muted:#5b6977;
+    --amber:#955400; --amber-soft:rgba(196,122,18,.11); --amber-edge:rgba(170,100,10,.5);
+    --cyan:#006d77; --cyan-soft:rgba(0,146,157,.10); --cyan-edge:rgba(0,120,130,.45);
+    --lav:#5638c0; --lav-soft:rgba(90,62,194,.09); --lav-edge:rgba(90,62,194,.42);
+    --rose:#b3263c; --rose-soft:rgba(179,38,60,.09); --rose-edge:rgba(179,38,60,.45);
+    --good:#1b7535; --good-soft:rgba(27,117,53,.10); --warn:#7d5e00; --warn-soft:rgba(160,120,0,.12);
+    --mark-amber:#c47a12; --mark-cyan:#00929d; --mark-rose:#c43a53; --grid:#e2e8ed; --chart-bg:#ffffff; --focus:#006d77;
+  }
+}
+:root[data-theme="light"]{
+  color-scheme: light;
+  --bg:#edf1f4; --bg-2:#e6ebef; --surface:#ffffff; --surface-2:#f5f8fa; --line:#d5dde4; --line-2:#bfcad4;
+  --ink:#111922; --ink-2:#3a4754; --muted:#5b6977;
+  --amber:#955400; --amber-soft:rgba(196,122,18,.11); --amber-edge:rgba(170,100,10,.5);
+  --cyan:#006d77; --cyan-soft:rgba(0,146,157,.10); --cyan-edge:rgba(0,120,130,.45);
+  --lav:#5638c0; --lav-soft:rgba(90,62,194,.09); --lav-edge:rgba(90,62,194,.42);
+  --rose:#b3263c; --rose-soft:rgba(179,38,60,.09); --rose-edge:rgba(179,38,60,.45);
+  --good:#1b7535; --good-soft:rgba(27,117,53,.10); --warn:#7d5e00; --warn-soft:rgba(160,120,0,.12);
+  --mark-amber:#c47a12; --mark-cyan:#00929d; --mark-rose:#c43a53; --grid:#e2e8ed; --chart-bg:#ffffff; --focus:#006d77;
+}
+:root[data-theme="dark"]{ color-scheme: dark; }
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *,*::before,*::after{transition:none!important;animation:none!important} }
+body{background:var(--bg);color:var(--ink);font:400 16.5px/1.62 var(--f-body);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+a{color:var(--cyan);text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:3px}
+code,kbd,.mono{font-family:var(--f-mono);font-size:.9em}
+p code,li code,td code,.inline-code{background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:.05em .35em;overflow-wrap:anywhere}
+td code{white-space:normal;word-break:break-word}
+kbd{border:1px solid var(--line-2);border-bottom-width:2px;border-radius:4px;padding:0 .35em;background:var(--surface)}
+strong{font-weight:700}
+h1,h2,h3,h4{text-wrap:balance;margin:0}
+p{margin:0}
+.page{max-width:1280px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+
+/* ---------- HERO ---------- */
+.hero{display:grid;gap:36px;padding-block:56px 40px;border-bottom:1px solid var(--line);align-items:start}
+@media (min-width:1000px){.hero{grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:48px;padding-block:72px 56px}}
+.eyebrow{font:500 .78rem/1.3 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.hero h1{font:800 clamp(3.4rem,9.2vw,6.6rem)/.84 var(--f-display);text-transform:uppercase;letter-spacing:.004em;margin-top:18px}
+.hero h1 .amber{color:var(--amber);display:block}
+.lede{font-size:1.2rem;line-height:1.55;color:var(--ink-2);margin-top:24px;max-width:36ch}
+.lede strong{color:var(--ink);font-weight:500}
+.hero-note{margin-top:18px;color:var(--muted);font-size:.95rem;max-width:44ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}
+.legend .k{font-size:.8rem;white-space:normal;align-items:baseline}
+.hero > *,.prose > *,.stack > *,.lab-body > *,.two-col > *,.rsa-grid > *,.pair > *,.cards > *,.picker > *,.hs-lanes > *,.art-grid > *,.stat-row > *,.controls > *,.pick-out > *,.qresult > *,.analogy > *{min-width:0}
+
+/* key-colour chips */
+.k{display:inline-flex;align-items:center;gap:.4em;font:500 .86em/1.2 var(--f-mono);padding:.22em .55em;border-radius:5px;border:1px solid;white-space:nowrap}
+.k::before{content:"";width:.55em;height:.55em;border-radius:50%;background:currentColor;flex:none}
+.k-priv{color:var(--amber);background:var(--amber-soft);border-color:var(--amber-edge)}
+.k-pub{color:var(--cyan);background:var(--cyan-soft);border-color:var(--cyan-edge)}
+.k-sess{color:var(--lav);background:var(--lav-soft);border-color:var(--lav-edge)}
+.k-adv{color:var(--rose);background:var(--rose-soft);border-color:var(--rose-edge)}
+.t-priv{color:var(--amber)} .t-pub{color:var(--cyan)} .t-sess{color:var(--lav)} .t-adv{color:var(--rose)}
+
+/* terminal */
+.term{background:var(--term-bg);border:1px solid var(--term-line);border-radius:10px;overflow:hidden;color:var(--term-ink);box-shadow:0 30px 60px -40px rgba(0,0,0,.7)}
+.term-bar{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--term-bar);border-bottom:1px solid var(--term-line);font:500 .74rem/1 var(--f-mono);color:var(--term-dim)}
+.term-bar .dots{display:flex;gap:6px}
+.term-bar .dots i{width:10px;height:10px;border-radius:50%;background:var(--term-line)}
+.term-body{overflow-x:auto;padding:14px 0 16px;font:400 .78rem/1.62 var(--f-mono)}
+.tl{display:flex;gap:16px;align-items:baseline;padding:0 16px;white-space:pre;color:var(--term-ink);text-decoration:none;min-width:max-content}
+.tl .tx{flex:none}
+.tl .dim{color:var(--term-dim)}
+.tl .am{color:var(--term-amber)} .tl .cy{color:var(--term-cyan)} .tl .lv{color:var(--term-lav)}
+.tl.hot{cursor:pointer;border-left:2px solid transparent}
+.tl.hot:hover,.tl.hot:focus-visible{background:var(--term-hover);border-left-color:var(--term-cyan);outline:none}
+.tl .tag{font:500 .68rem/1 var(--f-mono);color:var(--term-dim);border:1px solid var(--term-line);border-radius:4px;padding:3px 6px;letter-spacing:.03em;opacity:.8}
+.tl.hot:hover .tag,.tl.hot:focus-visible .tag{color:var(--term-cyan);border-color:var(--term-cyan);opacity:1}
+.tl.ok .tx{color:#8fe0a4}
+.cursor{display:inline-block;width:.6em;height:1.05em;background:var(--term-ink);vertical-align:-2px;animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.term-foot{padding:10px 16px;border-top:1px solid var(--term-line);font:400 .72rem/1.4 var(--f-mono);color:var(--term-dim)}
+
+/* ---------- LAYOUT ---------- */
+.layout{display:block}
+@media (min-width:1120px){.layout{display:grid;grid-template-columns:210px minmax(0,1fr);gap:56px}}
+.rail{display:none}
+@media (min-width:1120px){
+  .rail{display:block;position:sticky;top:calc(env(safe-area-inset-top,0px) + 24px);align-self:start;padding-top:48px;max-height:calc(100vh - 48px);overflow:auto}
+}
+.rail-head{font:500 .74rem/1 var(--f-mono);color:var(--muted);letter-spacing:.06em;margin-bottom:14px}
+.rail ol{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.rail a{display:grid;grid-template-columns:28px 1fr;gap:4px;padding:6px 8px;border-radius:6px;color:var(--ink-2);text-decoration:none;font-size:.9rem;line-height:1.3}
+.rail a span{font:500 .78rem/1.5 var(--f-mono);color:var(--muted)}
+.rail a:hover{background:var(--surface);color:var(--ink)}
+.rail a[aria-current="true"]{background:var(--surface);color:var(--ink);box-shadow:inset 2px 0 0 var(--cyan)}
+.rail a[aria-current="true"] span{color:var(--cyan)}
+.toc-inline{margin-block:28px 0;padding:18px 20px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.toc-inline ol{margin:10px 0 0;padding:0;list-style:none;columns:2 220px;column-gap:24px}
+.toc-inline li{break-inside:avoid;padding:3px 0}
+.toc-inline a{color:var(--ink-2);text-decoration:none}
+.toc-inline a span{font-family:var(--f-mono);color:var(--muted);margin-right:8px;font-size:.85em}
+@media (min-width:1120px){.toc-inline{display:none}}
+
+main{min-width:0}
+.chapter{padding-block:72px 8px;border-bottom:1px solid var(--line);scroll-margin-top:16px}
+.chapter:last-of-type{border-bottom:0}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:end;margin-bottom:28px}
+.ch-num{font:800 clamp(3.6rem,8vw,5.4rem)/.8 var(--f-display);color:transparent;-webkit-text-stroke:1.5px var(--line-2)}
+.ch-head h2{font:800 clamp(2.2rem,5vw,3.2rem)/.95 var(--f-display);text-transform:uppercase;letter-spacing:.01em;margin-top:6px}
+.prose{max-width:68ch;display:grid;gap:1.05em}
+.prose > h3,.sub{font:700 1.18rem/1.3 var(--f-body);margin-top:1.1em}
+.prose ul,.prose ol{margin:0;padding-left:1.25em;display:grid;gap:.45em}
+.prose li::marker{color:var(--muted)}
+.muted{color:var(--muted)}
+.small{font-size:.9rem}
+.stack{display:grid;gap:22px;margin-block:30px}
+
+/* callouts */
+.note{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:16px 18px;display:grid;gap:8px;max-width:68ch}
+.note-label{font:600 .72rem/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.note.gotcha .note-label{color:var(--rose)}
+.note.field .note-label{color:var(--cyan)}
+.note.why .note-label{color:var(--lav)}
+
+/* analogy cards */
+.pair{display:grid;gap:16px;margin-block:26px}
+@media (min-width:760px){.pair{grid-template-columns:1fr 1fr}}
+.analogy{border:1px solid var(--line);border-radius:10px;padding:20px;background:var(--surface);display:grid;gap:12px;align-content:start}
+.analogy h3{font:800 1.6rem/1 var(--f-display);text-transform:uppercase;letter-spacing:.02em}
+.analogy .kind{font:500 .74rem/1 var(--f-mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.flow{display:grid;gap:8px;font-size:.93rem}
+.flow div{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.flow .arrow{color:var(--muted);font-family:var(--f-mono)}
+.analogy .verdict{border-top:1px dashed var(--line);padding-top:12px;font-size:.93rem;color:var(--ink-2)}
+
+/* tables */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin-block:22px}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 .72rem/1.3 var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);background:var(--surface-2)}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--f-mono)}
+.pill{display:inline-block;font:600 .68rem/1 var(--f-mono);letter-spacing:.07em;text-transform:uppercase;padding:5px 7px;border-radius:4px;border:1px solid;white-space:nowrap}
+.p-rec{color:var(--good);border-color:currentColor;background:var(--good-soft)}
+.p-ok{color:var(--cyan);border-color:currentColor;background:var(--cyan-soft)}
+.p-legacy{color:var(--warn);border-color:currentColor;background:var(--warn-soft)}
+.p-dead{color:var(--rose);border-color:currentColor;background:var(--rose-soft)}
+.p-exp{color:var(--lav);border-color:currentColor;background:var(--lav-soft)}
+.p-def{color:var(--ink);border-color:var(--line-2);background:var(--surface-2)}
+
+/* code blocks */
+.code{position:relative;min-width:0;background:var(--term-bg);color:var(--term-ink);border:1px solid var(--term-line);border-radius:8px;margin:0;max-width:100%}
+.code pre{margin:0;padding:14px 16px;overflow-x:auto;font:400 .82rem/1.6 var(--f-mono);white-space:pre}
+.code .c{color:var(--term-dim)} .code .a{color:var(--term-amber)} .code .y{color:var(--term-cyan)} .code .v{color:var(--term-lav)} .code .r{color:var(--term-rose)}
+.code .copy{position:absolute;top:8px;right:8px;font:500 .7rem/1 var(--f-mono);color:var(--term-dim);background:var(--term-bar);border:1px solid var(--term-line);border-radius:5px;padding:6px 8px;cursor:pointer}
+.code .copy:hover{color:var(--term-cyan);border-color:var(--term-cyan)}
+.code-label{font:500 .72rem/1 var(--f-mono);color:var(--muted);letter-spacing:.05em;margin-bottom:6px}
+
+/* ---------- LAB PANELS ---------- */
+.lab{border:1px solid var(--line-2);border-radius:12px;background:var(--surface);margin-block:30px;overflow:hidden}
+.lab-bar{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.lab-tag{font:600 .7rem/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--cyan)}
+.lab-bar h3{font:700 1.08rem/1.25 var(--f-body)}
+.lab-body{padding:20px;display:grid;gap:18px}
+.lab-intro{color:var(--ink-2);font-size:.95rem;max-width:72ch}
+.controls{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:end}
+.field{display:grid;gap:6px;min-width:0}
+.field > span,.flabel{font:500 .72rem/1.2 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+input[type=range]{accent-color:var(--cyan);width:min(240px,100%)}
+input[type=text],input[type=number],select,textarea{font:400 .92rem/1.3 var(--f-mono);color:var(--ink);background:var(--bg-2);border:1px solid var(--line-2);border-radius:6px;padding:8px 10px;max-width:100%}
+textarea{width:100%;resize:vertical;min-height:84px;line-height:1.5;word-break:break-all}
+input[type=number]{width:7.5em}
+.btn{font:600 .85rem/1 var(--f-body);color:var(--ink);background:var(--surface-2);border:1px solid var(--line-2);border-radius:7px;padding:10px 14px;cursor:pointer;display:inline-flex;gap:8px;align-items:center}
+.btn:hover{border-color:var(--cyan);color:var(--cyan)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--cyan);border-color:var(--cyan);color:var(--bg)}
+.btn.primary:hover{filter:brightness(1.08);color:var(--bg)}
+.btn.small{padding:7px 10px;font-size:.78rem}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:7px;overflow:hidden}
+.seg button{font:500 .8rem/1 var(--f-body);background:transparent;color:var(--ink-2);border:0;padding:9px 12px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line-2)}
+.seg button[aria-pressed="true"]{background:var(--cyan-soft);color:var(--cyan)}
+.readout{font:400 .86rem/1.65 var(--f-mono);color:var(--ink-2);background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+.readout b{color:var(--ink);font-weight:600}
+.stat-row{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr))}
+.stat{border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:var(--bg-2);display:grid;gap:4px;min-width:0}
+.stat .l{font:500 .7rem/1.2 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font:600 1.02rem/1.25 var(--f-mono);overflow-wrap:anywhere}
+.ok-text{color:var(--good)} .bad-text{color:var(--rose)}
+.canvas-wrap{position:relative;width:100%;max-width:100%}
+canvas{display:block;max-width:100%;border-radius:8px;background:var(--chart-bg);border:1px solid var(--line)}
+.two-col{display:grid;gap:18px}
+@media (min-width:820px){.two-col{grid-template-columns:1fr 1fr}}
+.bignum{font:400 .72rem/1.45 var(--f-mono);color:var(--cyan);word-break:break-all;max-height:170px;overflow:auto;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:12px}
+
+/* toy RSA */
+.rsa-grid{display:grid;gap:14px}
+@media (min-width:820px){.rsa-grid{grid-template-columns:1fr 1fr}}
+.party{border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:12px;background:var(--bg-2);align-content:start}
+.party h4{font:700 .98rem/1.2 var(--f-body);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.steps-mini{display:grid;gap:6px;font:400 .84rem/1.5 var(--f-mono);color:var(--ink-2)}
+.steps-mini div{display:grid;grid-template-columns:22px 1fr;gap:6px}
+.steps-mini i{font-style:normal;color:var(--muted)}
+.verdict-box{font:600 .95rem/1.3 var(--f-mono);padding:10px 12px;border-radius:7px;border:1px solid}
+.verdict-box.good{color:var(--good);background:var(--good-soft);border-color:currentColor}
+.verdict-box.bad{color:var(--rose);background:var(--rose-soft);border-color:currentColor}
+
+/* paint */
+.paint{display:grid;gap:10px}
+.paint-row{display:grid;grid-template-columns:minmax(90px,130px) 1fr;gap:12px;align-items:center}
+.paint-row .who{font:600 .8rem/1.2 var(--f-mono);color:var(--ink-2)}
+.eq{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-family:var(--f-mono);color:var(--muted)}
+.sw{width:44px;height:34px;border-radius:7px;border:1px solid var(--line-2);display:inline-block;flex:none}
+.sw.lg{width:64px;height:44px}
+.sw-cap{font:500 .7rem/1.2 var(--f-mono);color:var(--muted);display:grid;gap:4px;justify-items:center;text-align:center}
+
+/* handshake */
+.hs{border:1px solid var(--line-2);border-radius:12px;background:var(--surface);margin-block:30px;overflow:hidden}
+.hs:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.hs-top{display:flex;flex-wrap:wrap;gap:12px 18px;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.hs-ctrl{display:flex;gap:8px;flex-wrap:wrap}
+.switch{display:inline-flex;gap:10px;align-items:center;font-size:.9rem;cursor:pointer;color:var(--ink-2)}
+.switch input{appearance:none;width:38px;height:22px;border-radius:11px;background:var(--line-2);position:relative;cursor:pointer;margin:0;flex:none}
+.switch input::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--ink);transition:transform .2s}
+.switch input:checked{background:var(--rose)}
+.switch input:checked::after{transform:translateX(16px)}
+.hs-dots{display:flex;flex-wrap:wrap;gap:6px;padding:14px 20px 0;list-style:none;margin:0}
+.hs-dots button{font:500 .72rem/1 var(--f-mono);min-width:30px;height:28px;border-radius:6px;border:1px solid var(--line-2);background:transparent;color:var(--muted);cursor:pointer}
+.hs-dots button[aria-current="step"]{background:var(--cyan);border-color:var(--cyan);color:var(--bg)}
+.hs-dots button.done{color:var(--ink-2);border-color:var(--line-2);background:var(--surface-2)}
+.hs-dots button.mitm[aria-current="step"]{background:var(--rose);border-color:var(--rose)}
+.hs-track{margin:24px 20px 6px;position:relative;height:46px;border-top:1px dashed var(--line-2);display:flex;justify-content:space-between}
+.hs-track .end{font:600 .7rem/1 var(--f-mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-top:22px}
+.hs-pill{position:absolute;top:-14px;left:0;font:600 .74rem/1 var(--f-mono);padding:7px 10px;border-radius:14px;background:var(--surface-2);border:1px solid var(--line-2);color:var(--ink);white-space:nowrap;transition:left .7s cubic-bezier(.4,0,.2,1),transform .7s cubic-bezier(.4,0,.2,1),opacity .3s;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis}
+.hs-pill.adv{border-color:var(--rose);color:var(--rose)}
+.hs-pill.enc{border-color:var(--lav);color:var(--lav)}
+.hs-lanes{display:grid;gap:12px;padding:10px 20px 18px}
+@media (min-width:860px){.hs-lanes{grid-template-columns:1fr 1fr 1fr}}
+.lane{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--bg-2);min-width:0}
+.lane h4{font:700 .9rem/1.2 var(--f-body);display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin-bottom:10px}
+.lane h4 small{font:500 .68rem/1 var(--f-mono);color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
+.lane-wire{border-style:dashed}
+.lane-wire h4{color:var(--rose)}
+.lane ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.chip{display:grid;gap:2px;font:500 .78rem/1.3 var(--f-mono);padding:7px 9px;border-radius:6px;border:1px solid;transition:background .4s}
+.chip small{font:400 .7rem/1.3 var(--f-body);opacity:.85}
+.chip.priv{color:var(--amber);border-color:var(--amber-edge);background:var(--amber-soft)}
+.chip.pub{color:var(--cyan);border-color:var(--cyan-edge);background:var(--cyan-soft)}
+.chip.sess{color:var(--lav);border-color:var(--lav-edge);background:var(--lav-soft)}
+.chip.sig{color:var(--amber);border-color:var(--amber-edge);background:transparent;border-style:dashed}
+.chip.adv{color:var(--rose);border-color:var(--rose-edge);background:var(--rose-soft)}
+.chip.plain{color:var(--ink-2);border-color:var(--line-2);background:transparent}
+.chip.cipher{color:var(--muted);border-color:var(--line-2);background:repeating-linear-gradient(135deg,transparent 0 6px,var(--surface-2) 6px 7px)}
+.chip.ok{color:var(--good);border-color:currentColor;background:var(--good-soft)}
+.chip.bad{color:var(--rose);border-color:currentColor;background:var(--rose-soft)}
+.chip.wiped{opacity:.45;text-decoration:line-through}
+.chip.new{box-shadow:0 0 0 2px var(--bg-2),0 0 0 3px currentColor}
+.lane .empty{font:400 .8rem/1.3 var(--f-body);color:var(--muted);font-style:italic}
+.hs-text{border-top:1px solid var(--line);padding:18px 20px 22px;display:grid;gap:12px}
+.hs-step{font:500 .72rem/1 var(--f-mono);color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.hs-text h4{font:800 1.7rem/1 var(--f-display);text-transform:uppercase;letter-spacing:.015em}
+.hs-body{display:grid;gap:10px;max-width:74ch;color:var(--ink-2)}
+.hs-body strong{color:var(--ink)}
+.hs-debug{font:400 .78rem/1.5 var(--f-mono);color:var(--term-ink);background:var(--term-bg);border:1px solid var(--term-line);border-radius:6px;padding:9px 12px;overflow-x:auto;white-space:pre}
+.hs-debug::before{content:"ssh -v › ";color:var(--term-dim)}
+.hs-warn{font:500 .74rem/1.45 var(--f-mono);color:var(--term-rose);background:var(--term-bg);border:1px solid var(--term-rose);border-radius:6px;padding:12px 14px;overflow-x:auto;white-space:pre}
+
+/* key parser */
+.samples{display:flex;flex-wrap:wrap;gap:8px}
+.bytemap{font:400 .76rem/1.75 var(--f-mono);background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:12px;max-height:230px;overflow:auto;word-break:break-all}
+.bytemap span{padding:1px 0}
+.bytemap .b-len{color:var(--muted)}
+.bytemap .b-type{color:var(--ink);background:var(--surface-2)}
+.bytemap .b-key{color:var(--cyan)}
+.bytemap .b-meta{color:var(--lav)}
+.bytemap .b-other{color:var(--ink-2)}
+.bm-legend{display:flex;flex-wrap:wrap;gap:14px;font:400 .76rem/1.3 var(--f-mono);color:var(--muted)}
+.bm-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.fields{display:grid;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.fields div{display:grid;grid-template-columns:minmax(120px,190px) 1fr;gap:12px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:.88rem}
+.fields div:last-child{border-bottom:0}
+.fields dt,.fields .fk{font:500 .78rem/1.4 var(--f-mono);color:var(--muted)}
+.fields .fv{font:400 .82rem/1.45 var(--f-mono);word-break:break-all;min-width:0}
+.art-grid{display:grid;gap:18px}
+@media (min-width:760px){.art-grid{grid-template-columns:auto 1fr;align-items:start}}
+.randomart{font:500 .95rem/1.18 var(--f-mono);background:var(--term-bg);color:var(--term-cyan);border:1px solid var(--term-line);border-radius:8px;padding:14px 16px;margin:0;white-space:pre;overflow-x:auto;width:max-content;max-width:100%}
+.err{color:var(--rose);font:500 .88rem/1.4 var(--f-mono)}
+
+/* file tree + anatomy */
+.tree{font:400 .84rem/1.75 var(--f-mono);background:var(--term-bg);color:var(--term-ink);border:1px solid var(--term-line);border-radius:8px;padding:14px 16px;overflow-x:auto;white-space:pre;margin:0}
+.tree .d{color:var(--term-dim)}
+.anat{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-block:18px;background:var(--surface)}
+.anat-row{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;padding:10px 14px;border-bottom:1px solid var(--line)}
+@media (min-width:720px){.anat-row{grid-template-columns:minmax(200px,260px) 1fr;gap:16px}}
+.anat-row:last-child{border-bottom:0}
+.anat-row .f{font:500 .8rem/1.45 var(--f-mono)}
+.anat-row .d{font-size:.9rem;color:var(--ink-2)}
+.anat-row.enc{background:repeating-linear-gradient(135deg,transparent 0 10px,var(--amber-soft) 10px 11px)}
+.anat-row.indent .f{padding-left:18px}
+.line-anatomy{font:400 .84rem/1.6 var(--f-mono);background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;white-space:nowrap}
+.line-anatomy span{padding:2px 4px;border-radius:4px}
+.la-legend{display:grid;gap:6px;font-size:.9rem;margin-top:10px}
+
+/* field guide cards */
+.cards{display:grid;gap:14px;margin-block:26px}
+@media (min-width:760px){.cards{grid-template-columns:1fr 1fr}}
+.card{border:1px solid var(--line);border-radius:10px;padding:18px;background:var(--surface);display:grid;gap:10px;align-content:start;min-width:0}
+.card-head{display:flex;justify-content:space-between;gap:10px;align-items:start}
+.card h3{font:800 1.55rem/1 var(--f-display);text-transform:uppercase;letter-spacing:.015em}
+.card .wire{font:500 .76rem/1.3 var(--f-mono);color:var(--muted);word-break:break-all}
+.card dl{margin:0;display:grid;gap:6px;font-size:.9rem}
+.card dl div{display:grid;grid-template-columns:92px 1fr;gap:10px}
+.card dt{font:500 .72rem/1.6 var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.card dd{margin:0;color:var(--ink-2);min-width:0}
+.card .cmd{font:400 .78rem/1.5 var(--f-mono);background:var(--term-bg);color:var(--term-ink);border:1px solid var(--term-line);border-radius:6px;padding:8px 10px;overflow-x:auto;white-space:pre}
+.card.featured{border-color:var(--lav-edge)}
+.retired{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.retired > div{display:grid;gap:6px 16px;padding:12px 16px;border-bottom:1px solid var(--line)}
+@media (min-width:720px){.retired > div{grid-template-columns:230px 150px 1fr;align-items:baseline}}
+.retired > div:last-child{border-bottom:0}
+.retired .n{font:600 .88rem/1.35 var(--f-mono)}
+.retired .n small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+.retired .d{font-size:.9rem;color:var(--ink-2)}
+
+/* charts */
+.chart{border:1px solid var(--line);border-radius:12px;background:var(--chart-bg);padding:18px 18px 12px;margin-block:26px}
+.chart-title{font:700 1rem/1.3 var(--f-body)}
+.chart-sub{font-size:.86rem;color:var(--muted);margin-top:4px;max-width:78ch}
+.chart-legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-size:.84rem;color:var(--ink-2)}
+.chart-legend span{display:inline-flex;gap:7px;align-items:center}
+.chart-legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.chart svg{display:block;width:100%;height:auto;margin-top:10px;overflow:visible}
+.chart svg text{font-family:var(--f-mono);fill:var(--muted);font-size:11px}
+.chart svg .lbl{fill:var(--ink-2);font-family:var(--f-body);font-size:12.5px}
+.chart svg .grp{fill:var(--muted);font-size:10.5px;letter-spacing:.08em}
+.chart svg .val{fill:var(--muted);font-size:11px}
+.chart details{margin-top:10px;font-size:.86rem}
+.chart summary{cursor:pointer;color:var(--muted);font-family:var(--f-mono);font-size:.78rem}
+.chart details table{margin-top:8px;font-size:.84rem}
+.hit{cursor:default}
+.hit:hover .dot-a,.hit:focus .dot-a,.hit:hover .dot-b,.hit:focus .dot-b{stroke-width:3}
+.hit:focus{outline:none}
+.hit:focus .rowbg{fill:var(--surface-2)}
+.tip{position:fixed;z-index:50;pointer-events:none;background:var(--surface);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;font:400 .8rem/1.4 var(--f-body);color:var(--ink-2);box-shadow:0 10px 30px -12px rgba(0,0,0,.5);max-width:260px}
+.tip b{font:600 .92rem/1.3 var(--f-mono);color:var(--ink)}
+.tip .row + .row{margin-top:3px}
+.tip .row{display:flex;gap:8px;align-items:center}
+.tip .key{width:12px;height:2px;border-radius:1px;display:inline-block}
+
+/* ladder */
+.ladder{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--chart-bg);margin-block:22px}
+.ladder-row{display:grid;grid-template-columns:70px 1fr;gap:10px 16px;padding:12px 16px;border-bottom:1px solid var(--line);align-items:center}
+.ladder-row:last-child{border-bottom:0}
+.ladder-head{background:var(--surface-2);font:600 .7rem/1.2 var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.ladder .lvl{font:600 1.05rem/1 var(--f-mono)}
+.ladder .lvl small{display:block;font:400 .68rem/1.3 var(--f-mono);color:var(--muted);margin-top:4px}
+.bars{display:grid;gap:6px;min-width:0}
+.bar{display:grid;grid-template-columns:74px 1fr 84px;gap:10px;align-items:center;font:400 .78rem/1 var(--f-mono);color:var(--muted)}
+.bar .trk{height:12px;background:var(--grid);border-radius:0 4px 4px 0;position:relative;overflow:hidden}
+.bar .fill{position:absolute;inset:0 auto 0 0;background:var(--ink-2);border-radius:0 4px 4px 0;opacity:.75}
+.bar .n{text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.ladder .keys{grid-column:2;font-size:.84rem;color:var(--ink-2)}
+.ladder .keys code{font-size:.78rem}
+
+/* timeline */
+.timeline{list-style:none;margin:22px 0 0;padding:0;display:grid;gap:0;max-width:78ch}
+.timeline li{display:grid;grid-template-columns:62px 1fr;gap:18px;padding:10px 0;border-top:1px solid var(--line)}
+.timeline .yr{font:800 1.5rem/1 var(--f-display);color:var(--muted)}
+.timeline li.now .yr{color:var(--cyan)}
+.timeline .ev{display:grid;gap:4px;font-size:.93rem;color:var(--ink-2)}
+.timeline .ev b{color:var(--ink);font-weight:500}
+
+/* mosca */
+.mosca-viz{position:relative;margin-top:6px}
+.mosca-axis{display:flex;justify-content:space-between;font:400 .72rem/1 var(--f-mono);color:var(--muted);margin-top:8px}
+.mtrack{position:relative;margin-top:26px}
+.mbar{position:relative;height:30px;border-radius:6px;background:var(--grid);overflow:hidden}
+.mseg{position:absolute;top:0;bottom:0;display:flex;align-items:center;padding-left:8px;font:600 .72rem/1 var(--f-mono);white-space:nowrap;overflow:hidden}
+.mseg.y{background:var(--lav-soft);color:var(--lav);border-right:2px solid var(--bg)}
+.mseg.x{background:var(--cyan-soft);color:var(--cyan)}
+.mseg.exposed{background:repeating-linear-gradient(135deg,var(--rose-soft) 0 8px,transparent 8px 11px);color:var(--rose);border-left:2px solid var(--rose)}
+.mline{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--rose)}
+.mline span{position:absolute;top:-18px;left:4px;font:600 .7rem/1 var(--f-mono);color:var(--rose);white-space:nowrap}
+.mosca-verdict{font:600 1rem/1.4 var(--f-body);padding:12px 14px;border-radius:8px;border:1px solid}
+.mosca-verdict.safe{color:var(--good);background:var(--good-soft);border-color:currentColor}
+.mosca-verdict.risk{color:var(--rose);background:var(--rose-soft);border-color:currentColor}
+.presets{display:flex;flex-wrap:wrap;gap:8px}
+
+/* picker */
+.picker{display:grid;gap:18px}
+@media (min-width:900px){.picker{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}}
+.q-group{display:grid;gap:8px;border:0;margin:0;padding:0;min-width:0}
+.q-group legend{font:600 .92rem/1.35 var(--f-body);margin-bottom:6px;padding:0}
+.opt{display:grid;grid-template-columns:18px 1fr;gap:10px;align-items:start;padding:9px 11px;border:1px solid var(--line);border-radius:8px;cursor:pointer;font-size:.9rem;background:var(--bg-2)}
+.opt:has(input:checked){border-color:var(--cyan);background:var(--cyan-soft)}
+.opt input{margin:3px 0 0;accent-color:var(--cyan)}
+.opt small{display:block;color:var(--muted);font-size:.8rem}
+.pick-out{border:1px solid var(--line-2);border-radius:10px;padding:16px;background:var(--bg-2);display:grid;gap:14px;align-content:start}
+.pick-out h4{font:800 1.5rem/1 var(--f-display);text-transform:uppercase;letter-spacing:.015em}
+.pick-out ul{margin:0;padding-left:1.2em;display:grid;gap:6px;font-size:.9rem;color:var(--ink-2)}
+
+/* quiz */
+.quiz{border:1px solid var(--line-2);border-radius:12px;background:var(--surface);overflow:hidden;margin-block:26px}
+.quiz-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.qprog{display:flex;gap:4px;flex-wrap:wrap}
+.qprog i{width:16px;height:6px;border-radius:3px;background:var(--line-2)}
+.qprog i.right{background:var(--good)} .qprog i.wrong{background:var(--rose)} .qprog i.cur{background:var(--cyan)}
+.qscore{font:600 .82rem/1 var(--f-mono);color:var(--ink-2)}
+.quiz-body{padding:22px 20px;display:grid;gap:16px}
+.qnum{font:500 .72rem/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.qtext{font:600 1.15rem/1.45 var(--f-body);max-width:66ch}
+.qopts{display:grid;gap:8px}
+.qopt{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;text-align:left;font:400 .95rem/1.45 var(--f-body);color:var(--ink);background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:11px 12px;cursor:pointer}
+.qopt:hover:not(:disabled){border-color:var(--cyan)}
+.qopt .ltr{font:600 .78rem/1.8 var(--f-mono);color:var(--muted);border:1px solid var(--line-2);border-radius:5px;text-align:center;height:24px}
+.qopt.right{border-color:var(--good);background:var(--good-soft)}
+.qopt.right .ltr{color:var(--good);border-color:var(--good)}
+.qopt.wrong{border-color:var(--rose);background:var(--rose-soft)}
+.qopt.wrong .ltr{color:var(--rose);border-color:var(--rose)}
+.qopt:disabled{cursor:default}
+.qexplain{border-left:0;border:1px solid var(--line);border-radius:8px;padding:14px 16px;background:var(--bg-2);display:grid;gap:6px;font-size:.93rem;color:var(--ink-2)}
+.qexplain b.v-right{color:var(--good)} .qexplain b.v-wrong{color:var(--rose)}
+.qnav{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;align-items:center}
+.qhint{font:400 .78rem/1.3 var(--f-mono);color:var(--muted)}
+.qresult{display:grid;gap:14px}
+.qresult .big{font:800 3.4rem/1 var(--f-display)}
+.qreview{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.qreview li{display:grid;grid-template-columns:24px 1fr;gap:10px;font-size:.9rem;color:var(--ink-2);padding:8px 0;border-top:1px solid var(--line)}
+
+/* sources */
+.sources{margin:0;padding-left:1.2em;display:grid;gap:6px;font-size:.92rem;color:var(--ink-2);max-width:80ch}
+footer.colophon{margin-top:40px;padding-top:20px;border-top:1px solid var(--line);font:400 .8rem/1.6 var(--f-mono);color:var(--muted);max-width:90ch}
+</style>
+<style>
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="tip" id="tip" hidden></div>
+
+<div class="page">
+<header class="hero">
+  <div>
+    <p class="eyebrow">~/.ssh field manual · rev. 2026-09 · OpenSSH 10.5</p>
+    <h1>Anatomy of an <span class="amber">SSH Key</span></h1>
+    <p class="lede">You type <code>ssh srv01</code> and a moment later you have a shell. In that moment, two machines that share no secrets agree on one, <strong>prove who they are to each other</strong>, and your private key never leaves your laptop.</p>
+    <p class="hero-note">Every highlighted line in this transcript gets explained somewhere below. Click one to jump to it. By the end you should be able to read all of it cold.</p>
+    <div class="legend" aria-label="Colour key used throughout">
+      <span class="k k-priv">private: only the holder can use or produce it</span>
+      <span class="k k-pub">public: safe to hand to anyone</span>
+      <span class="k k-sess">session secret: derived per connection</span>
+      <span class="k k-adv">the attacker's view</span>
+    </div>
+  </div>
+  <div class="term" role="region" aria-label="Annotated ssh -v transcript">
+    <div class="term-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span>zsh · ssh -v alice@srv01 · example session, abridged</span></div>
+    <div class="term-body" id="heroTerm">
+      <div class="tl"><span class="tx"><span class="dim">$</span> ssh -v alice@srv01</span></div>
+      <a class="tl hot" href="#ch05" data-step="0"><span class="tx">debug1: Connecting to srv01 [192.0.2.10] port 22.</span><span class="tag">05 · handshake</span></a>
+      <div class="tl"><span class="tx dim">debug1: Connection established.</span></div>
+      <a class="tl hot" href="#ch05" data-step="1"><span class="tx">debug1: Local version string SSH-2.0-OpenSSH_10.2</span><span class="tag">05 · banners</span></a>
+      <a class="tl hot" href="#ch05" data-step="1"><span class="tx">debug1: Remote protocol version 2.0, remote software version OpenSSH_10.2</span><span class="tag">05 · banners</span></a>
+      <a class="tl hot" href="#ch05" data-step="2"><span class="tx">debug1: SSH2_MSG_KEXINIT sent</span><span class="tag">05 · negotiation</span></a>
+      <div class="tl"><span class="tx dim">debug1: SSH2_MSG_KEXINIT received</span></div>
+      <a class="tl hot" href="#ch04"><span class="tx">debug1: kex: algorithm: <span class="lv">mlkem768x25519-sha256</span></span><span class="tag">04 · key agreement</span></a>
+      <a class="tl hot" href="#keytypes"><span class="tx">debug1: kex: host key algorithm: <span class="cy">ssh-ed25519</span></span><span class="tag">07 · key types</span></a>
+      <a class="tl hot" href="#ciphers"><span class="tx">debug1: kex: server-&gt;client cipher: <span class="lv">chacha20-poly1305@openssh.com</span> MAC: &lt;implicit&gt; compression: none</span><span class="tag">07 · ciphers</span></a>
+      <div class="tl"><span class="tx dim">debug1: kex: client-&gt;server cipher: chacha20-poly1305@openssh.com MAC: &lt;implicit&gt; compression: none</span></div>
+      <a class="tl hot" href="#ch05" data-step="3"><span class="tx">debug1: expecting SSH2_MSG_KEX_ECDH_REPLY</span><span class="tag">05 · client's half</span></a>
+      <a class="tl hot" href="#ch05" data-step="4"><span class="tx">debug1: SSH2_MSG_KEX_ECDH_REPLY received</span><span class="tag">05 · server signs</span></a>
+      <a class="tl hot" href="#ch06"><span class="tx">debug1: Server host key: ssh-ed25519 <span class="cy">SHA256:WzVuwy8D+WXGTOcCPZdomeXlotiyg8aoZc6QlyD3aYQ</span></span><span class="tag">06 · fingerprints</span></a>
+      <a class="tl hot" href="#ch05" data-step="5"><span class="tx">debug1: Host 'srv01' is known and matches the ED25519 host key.</span><span class="tag">05 · host check</span></a>
+      <div class="tl"><span class="tx dim">debug1: Found key in /Users/alice/.ssh/known_hosts:4</span></div>
+      <a class="tl hot" href="#ch05" data-step="6"><span class="tx">debug1: SSH2_MSG_NEWKEYS sent</span><span class="tag">05 · encryption on</span></a>
+      <div class="tl"><span class="tx dim">debug1: SSH2_MSG_NEWKEYS received</span></div>
+      <a class="tl hot" href="#ch05" data-step="7"><span class="tx">debug1: Authentications that can continue: publickey</span><span class="tag">05 · auth methods</span></a>
+      <a class="tl hot" href="#ch05" data-step="8"><span class="tx">debug1: Offering public key: /Users/alice/.ssh/id_ed25519 ED25519 <span class="cy">SHA256:31yXDdGbDiTF5dXHAiQIQmoCkOTWx+UGHFyBvSME6eo</span> explicit</span><span class="tag">05 · key offer</span></a>
+      <a class="tl hot" href="#ch05" data-step="8"><span class="tx">debug1: Server accepts key: /Users/alice/.ssh/id_ed25519 ED25519 SHA256:31yXDd… explicit</span><span class="tag">05 · key offer</span></a>
+      <a class="tl hot ok" href="#ch05" data-step="9"><span class="tx">Authenticated to srv01 ([192.0.2.10]:22) using "publickey".</span><span class="tag">05 · the signature</span></a>
+      <div class="tl"><span class="tx"><span class="dim">alice@srv01:~$</span> <span class="cursor" aria-hidden="true"></span></span></div>
+    </div>
+    <div class="term-foot">Fingerprints above belong to real keys generated for this page. Paste them into the lab in chapter 06 and check.</div>
+  </div>
+</header>
+
+<nav class="toc-inline" aria-label="Chapters">
+  <span class="eyebrow">Chapters</span>
+  <ol>
+    <li><a href="#ch01"><span>01</span>Two keys, two jobs</a></li>
+    <li><a href="#ch02"><span>02</span>Trapdoors</a></li>
+    <li><a href="#ch03"><span>03</span>Curves</a></li>
+    <li><a href="#ch04"><span>04</span>Agreeing on a secret</a></li>
+    <li><a href="#ch05"><span>05</span>The handshake</a></li>
+    <li><a href="#ch06"><span>06</span>Inside the files</a></li>
+    <li><a href="#ch07"><span>07</span>Field guide to algorithms</a></li>
+    <li><a href="#ch08"><span>08</span>The quantum problem</a></li>
+    <li><a href="#ch09"><span>09</span>What to actually run</a></li>
+    <li><a href="#ch10"><span>10</span>Check yourself</a></li>
+  </ol>
+</nav>
+
+<div class="layout">
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-head">~/.ssh/manual/</div>
+  <ol id="railList">
+    <li><a href="#ch01"><span>01</span>Two keys, two jobs</a></li>
+    <li><a href="#ch02"><span>02</span>Trapdoors</a></li>
+    <li><a href="#ch03"><span>03</span>Curves</a></li>
+    <li><a href="#ch04"><span>04</span>Agreeing on a secret</a></li>
+    <li><a href="#ch05"><span>05</span>The handshake</a></li>
+    <li><a href="#ch06"><span>06</span>Inside the files</a></li>
+    <li><a href="#ch07"><span>07</span>Field guide to algorithms</a></li>
+    <li><a href="#ch08"><span>08</span>The quantum problem</a></li>
+    <li><a href="#ch09"><span>09</span>What to actually run</a></li>
+    <li><a href="#ch10"><span>10</span>Check yourself</a></li>
+    <li><a href="#sources"><span>··</span>Sources</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ============ 01 ============ -->
+<section class="chapter" id="ch01">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">01</span><div><p class="eyebrow">Symmetric vs. asymmetric</p><h2>Two keys, two jobs</h2></div></header>
+  <div class="prose">
+    <p><strong>Symmetric crypto is the workhorse.</strong> One key locks and the same key unlocks. AES and ChaCha20 push gigabytes per second, and every byte of your SSH session, keystrokes included, is encrypted this way. The catch is that both ends need the same key before they start, and the only channel they have is the one that's being watched. You can't mail the key to the server. The network <em>is</em> the mail.</p>
+    <p><strong>Asymmetric crypto splits the key in two.</strong> A <span class="t-priv">private key</span> that never leaves its owner, and a <span class="t-pub">public key</span> you can hand to anyone, paste in a chat, or commit to a public repo. The two halves are linked by math: what one half does, only the other half can check or undo. Computing the private half from the public half is supposed to be infeasible, and chapters 2 and 3 are about why.</p>
+    <p>There are two ways to use a key pair. People mix them up constantly, including a lot of SSH tutorials.</p>
+  </div>
+
+  <div class="pair">
+    <article class="analogy">
+      <span class="kind">Mode 1 · encryption</span>
+      <h3>The padlock</h3>
+      <p>You mail out open padlocks to anyone who asks. Anyone can put something in a box and snap your padlock shut. Only your key opens it.</p>
+      <div class="flow">
+        <div><span class="k k-pub">public key</span><span class="arrow">locks</span></div>
+        <div><span class="k k-priv">private key</span><span class="arrow">unlocks</span></div>
+      </div>
+      <p class="verdict">Gets a secret <strong>to</strong> the key's owner.</p>
+    </article>
+    <article class="analogy">
+      <span class="kind">Mode 2 · signatures</span>
+      <h3>The signet ring</h3>
+      <p>You press your ring into hot wax. Anyone holding a picture of your seal can check a stamp against it, but nobody can make a new stamp without the ring.</p>
+      <div class="flow">
+        <div><span class="k k-priv">private key</span><span class="arrow">stamps (signs)</span></div>
+        <div><span class="k k-pub">public key</span><span class="arrow">checks (verifies)</span></div>
+      </div>
+      <p class="verdict">Proves something came <strong>from</strong> the key's owner.</p>
+    </article>
+  </div>
+
+  <div class="note gotcha">
+    <span class="note-label">Gotcha</span>
+    <p><strong>SSH login is the signet ring, never the padlock.</strong> The popular explanation goes "the server encrypts a random challenge with your public key and you prove yourself by decrypting it." That was SSH-1, from the 1990s. In SSH-2 (the only version OpenSSH has spoken since 2017), your client <em>signs</em> a blob that includes a fresh session ID, and the server checks that signature against the public key in <code>authorized_keys</code>. Nothing is ever encrypted with your SSH key. That's also why Ed25519, an algorithm that can only sign, works perfectly well as an SSH key.</p>
+  </div>
+
+  <div class="prose" style="margin-top:28px">
+    <p>So what does the encrypting? A symmetric key that both sides derive fresh for every connection through a key exchange (chapter 4). Your long-term key has exactly one job, which is proving identity. That gives SSH three separate jobs handled by three separate families of algorithms, and all three show up in the transcript above:</p>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Job</th><th>Question it answers</th><th>Algorithm family</th><th>In the transcript</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Identity</strong><br><span class="muted small">signatures</span></td><td>Who is the server? Who are you?</td><td><code>ssh-ed25519</code>, <code>rsa-sha2-512</code>, <code>ecdsa-sha2-nistp256</code></td><td><code>host key algorithm: ssh-ed25519</code></td></tr>
+        <tr><td><strong>Key agreement</strong><br><span class="muted small">key exchange, KEX</span></td><td>How do two strangers get a shared secret over a tapped wire?</td><td><code>mlkem768x25519-sha256</code>, <code>curve25519-sha256</code></td><td><code>kex: algorithm: mlkem768x25519-sha256</code></td></tr>
+        <tr><td><strong>Bulk protection</strong><br><span class="muted small">cipher + MAC</span></td><td>How is every packet kept secret and tamper-proof?</td><td><code>chacha20-poly1305</code>, <code>aes256-gcm</code></td><td><code>cipher: chacha20-poly1305@openssh.com</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="prose"><p class="muted">When someone asks what "encryption type" their SSH key uses, they're usually blending row one with row three. Your key type decides how you prove identity. It has nothing to do with how your traffic is encrypted.</p></div>
+</section>
+
+<!-- ============ 02 ============ -->
+<section class="chapter" id="ch02">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">02</span><div><p class="eyebrow">RSA and the factoring problem</p><h2>Trapdoors</h2></div></header>
+  <div class="prose">
+    <p>A <strong>trapdoor function</strong> is easy to compute, hard to run backwards, and easy to run backwards again if you know one extra secret. All of classical public-key crypto is a search for good trapdoors, and RSA (Rivest, Shamir, Adleman, 1977) uses the oldest one: multiplying two primes is trivial, and splitting the product back into those primes is not.</p>
+    <p>You don't have to take that on faith. Race it:</p>
+  </div>
+
+  <div class="lab" id="lab-factor">
+    <div class="lab-bar"><span class="lab-tag">Lab · factor-race</span><h3>Multiply two primes, then try to undo it</h3></div>
+    <div class="lab-body">
+      <p class="lab-intro">This generates two random primes of equal size, multiplies them, then factors the product with the dumbest possible attack: trial division by every odd number up to √n. Each run is plotted below. Watch what two extra bits of <em>n</em> do to the work.</p>
+      <div class="controls">
+        <label class="field"><span>Size of n: <b id="fBitsOut">40</b> bits</span><input type="range" id="fBits" min="20" max="52" step="2" value="40"></label>
+        <button class="btn primary" id="fGo" type="button">Generate &amp; race</button>
+        <button class="btn" id="fStop" type="button" disabled>Stop</button>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><span class="l">p × q</span><span class="v" id="fPQ">–</span></div>
+        <div class="stat"><span class="l">n (public)</span><span class="v t-pub" id="fN">–</span></div>
+        <div class="stat"><span class="l">Multiply time</span><span class="v" id="fMul">–</span></div>
+        <div class="stat"><span class="l">Factor: divisions tried</span><span class="v t-adv" id="fSteps">–</span></div>
+        <div class="stat"><span class="l">Factor time</span><span class="v t-adv" id="fTime">–</span></div>
+      </div>
+      <div class="chart" style="margin:0">
+        <div class="chart-title">Attacker's work per run</div>
+        <div class="chart-sub">log₂ of divisions tried vs. size of <em>n</em>. The line is the expected cost, √n / 2. Every step up the y-axis doubles the work.</div>
+        <svg id="fChart" viewBox="0 0 640 260" role="img" aria-label="Scatter plot of factoring effort by key size"></svg>
+      </div>
+      <p class="small muted" id="fExtrap">At the slope you're seeing, trial division of a 2,048-bit RSA modulus would need about 2<sup>1023</sup> divisions. Real attackers use the General Number Field Sieve, which is enormously smarter, and it still costs about 2<sup>112</sup> operations for RSA-2048 and 2<sup>128</sup> for RSA-3072. That's what NIST means when it rates them at "112-bit" and "128-bit" security.</p>
+    </div>
+  </div>
+
+  <div class="prose">
+    <h3 class="sub">How RSA turns factoring into a key pair</h3>
+    <p>The recipe is short. Pick two secret primes <i>p</i> and <i>q</i> and multiply them into the public modulus <i>n</i>. Compute φ(<i>n</i>) = (<i>p</i>−1)(<i>q</i>−1), which you can only do if you know the primes. Pick a public exponent <i>e</i> (almost always 65537), then solve for the private exponent <i>d</i> such that <i>e·d</i> ≡ 1 mod φ(<i>n</i>). Raising to the power <i>e</i> and raising to the power <i>d</i> undo each other mod <i>n</i>. The public key is (<i>n</i>, <i>e</i>). The private key is <i>d</i>, and anyone who can factor <i>n</i> can recompute it.</p>
+    <p>Here's the whole thing with numbers small enough to follow by hand. Sign a message as the key holder, then play verifier and try to tamper with it.</p>
+  </div>
+
+  <div class="lab" id="lab-rsa">
+    <div class="lab-bar"><span class="lab-tag">Lab · toy-rsa</span><h3>Build an RSA key pair and sign something</h3></div>
+    <div class="lab-body">
+      <div class="controls">
+        <label class="field"><span>Prime p</span><select id="rP"></select></label>
+        <label class="field"><span>Prime q</span><select id="rQ"></select></label>
+      </div>
+      <div class="steps-mini" id="rKeygen"></div>
+      <div class="rsa-grid">
+        <div class="party">
+          <h4>Signer <span class="k k-priv">holds d</span></h4>
+          <label class="field"><span>Message</span><input type="text" id="rMsg" value="session 7f3a: log in alice" autocomplete="off"></label>
+          <div class="steps-mini" id="rSign"></div>
+        </div>
+        <div class="party">
+          <h4>Verifier <span class="k k-pub">holds only n, e</span></h4>
+          <label class="field"><span>Message received (edit to tamper)</span><input type="text" id="rMsgIn" autocomplete="off"></label>
+          <label class="field"><span>Signature received (edit to forge)</span><input type="number" id="rSigIn" min="0"></label>
+          <div class="steps-mini" id="rVerify"></div>
+          <div class="verdict-box good" id="rVerdict">–</div>
+          <button class="btn small" id="rReset" type="button">Reset to what was sent</button>
+        </div>
+      </div>
+      <p class="small muted">The toy hashes the message with 32-bit FNV-1a and reduces it mod <i>n</i>, so with an <i>n</i> this small, lots of messages collide. Real <code>rsa-sha2-512</code> hashes with SHA-512 and pads the result (PKCS#1 v1.5) before exponentiating. Unpadded "textbook" RSA like this is fine for learning and broken in production.</p>
+    </div>
+  </div>
+
+  <div class="prose">
+    <p><strong>Now for scale.</strong> Your toy <i>n</i> is a few digits. Here's the actual modulus from a 3,072-bit RSA key generated for this page: 925 decimal digits, every one of them public. The two primes that multiply to it live only in the private key file.</p>
+  </div>
+  <div class="bignum" id="bigN" tabindex="0" aria-label="3072-bit RSA modulus in decimal"></div>
+</section>
+
+<!-- ============ 03 ============ -->
+<section class="chapter" id="ch03">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">03</span><div><p class="eyebrow">Elliptic curves, ECDSA and Ed25519</p><h2>Curves</h2></div></header>
+  <div class="prose">
+    <p>RSA keys are huge because factoring has clever shortcuts: the number field sieve is much faster than brute force, so <i>n</i> has to be enormous to stay ahead of it. Elliptic curves offer a trapdoor with no known shortcut of that kind. A 256-bit curve key buys the same ~128-bit security that RSA needs 3,072 bits for.</p>
+    <p>An elliptic curve is the set of points satisfying <code>y² = x³ + ax + b</code>. The strange, useful fact is that you can "add" two points on it and land on a third point on the same curve. The rule is geometric:</p>
+  </div>
+
+  <div class="lab" id="lab-ec">
+    <div class="lab-bar"><span class="lab-tag">Lab · point-addition</span><h3>Adding points on y² = x³ − x + 1</h3></div>
+    <div class="lab-body">
+      <p class="lab-intro">Draw a line through P and Q. It hits the curve at exactly one more point. Reflect that point across the x-axis and you have P + Q. To add a point to itself (P + P, "doubling"), use the tangent line at P instead.</p>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Operation"><button type="button" id="ecAdd" aria-pressed="true">P + Q</button><button type="button" id="ecDbl" aria-pressed="false">P + P (double)</button></div>
+        <label class="field"><span>P.x</span><input type="range" id="ecPx" min="-1.32" max="2.4" step="0.01" value="-0.9"></label>
+        <label class="field" id="ecQwrap"><span>Q.x</span><input type="range" id="ecQx" min="-1.32" max="2.4" step="0.01" value="0.35"></label>
+        <label class="switch"><input type="checkbox" id="ecQneg"> Q below axis</label>
+      </div>
+      <div class="canvas-wrap"><canvas id="ecCanvas" height="400" aria-label="Elliptic curve point addition diagram"></canvas></div>
+      <div class="readout" id="ecRead"></div>
+    </div>
+  </div>
+
+  <div class="prose">
+    <p>Repeat the operation and you get <strong>scalar multiplication</strong>: <i>k</i>·G means G + G + … + G, <i>k</i> times. Computing it is fast even for astronomically large <i>k</i>, because you can double-and-add (2G, 4G, 8G… then sum the ones you need), which takes about 2·log₂(<i>k</i>) steps. Going backwards, from the point <i>k</i>·G to the number <i>k</i>, is the <strong>elliptic curve discrete logarithm problem</strong>, and it's the trapdoor.</p>
+    <p>Real curves don't use real numbers. They use integers mod a prime, which turns the smooth curve into a scatter of points with no visible pattern. That scatter is the point: consecutive multiples of G jump around unpredictably, so the public point gives you no hint about how many hops it took to get there.</p>
+  </div>
+
+  <div class="lab" id="lab-ff">
+    <div class="lab-bar"><span class="lab-tag">Lab · discrete-log</span><h3>The same idea over a finite field: y² = x³ − 3x + 6 (mod 101)</h3></div>
+    <div class="lab-body">
+      <p class="lab-intro">This curve has 109 points (108 dots plus the "point at infinity"), and 109 is prime, so any point generates all of them. The <i>a</i> = −3 is the same choice NIST made for P-256. Slide <i>k</i> to walk the multiples of G. Then hide a secret and brute-force it the way an attacker would have to.</p>
+      <div class="two-col">
+        <div class="canvas-wrap"><canvas id="ffCanvas" height="420" aria-label="Points of an elliptic curve over a finite field"></canvas></div>
+        <div style="display:grid;gap:14px;align-content:start">
+          <label class="field"><span>Private key k = <b id="ffKout" class="t-priv">7</b></span><input type="range" id="ffK" min="1" max="108" value="7"></label>
+          <div class="readout" id="ffRead"></div>
+          <div class="controls"><button class="btn" id="ffNew" type="button">Hide a new secret</button><button class="btn primary" id="ffBrute" type="button">Brute-force it</button></div>
+          <div class="readout" id="ffChal">No secret hidden yet.</div>
+        </div>
+      </div>
+      <p class="small muted">With 109 points the attacker needs at most 108 tries. Curve25519's group has about 2<sup>252</sup> points, and the best known attack (Pollard's rho) needs about 2<sup>126</sup> steps. At a trillion steps per second that's roughly 200 million times the age of the universe.</p>
+    </div>
+  </div>
+
+  <div class="prose">
+    <h3 class="sub">Ed25519 vs. ECDSA: same kind of math, different engineering</h3>
+    <p>Both are elliptic-curve signature schemes, and both give about 128-bit security at the 256-bit size. The differences are in which curve they use and how they sign.</p>
+    <ul>
+      <li><strong>The curves.</strong> Ed25519 runs on edwards25519, a twisted-Edwards form of Daniel J. Bernstein's Curve25519, over the prime 2<sup>255</sup> − 19 (that's where the name comes from). Every constant has a published justification. ECDSA in SSH uses NIST's P-256, P-384 and P-521, standardized around 2000 and generated from seed values nobody has ever explained. There's no known weakness in the NIST curves, but the unexplained seeds are why some people prefer to avoid them.</li>
+      <li><strong>The nonce.</strong> Every ECDSA signature needs a fresh, secret, perfectly random number. Reuse one even once, or let the random numbers be slightly biased, and the private key falls out of the signatures with high-school algebra. Sony's PS3 signing key was extracted in 2010 because Sony used the same nonce every time. In 2024, PuTTY versions 0.68 through 0.80 were found to generate biased nonces for P-521 keys, and about 60 signatures were enough to recover the private key (CVE-2024-31497). Many of those signatures were sitting in public Git commit histories.</li>
+      <li><strong>Ed25519 designs the problem out.</strong> It derives each signature's nonce by hashing the private key together with the message. Same message, same nonce, no random number generator involved at signing time, so there's nothing to get wrong.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ 04 ============ -->
+<section class="chapter" id="ch04">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">04</span><div><p class="eyebrow">Diffie–Hellman, X25519, ML-KEM</p><h2>Agreeing on a secret</h2></div></header>
+  <div class="prose">
+    <p>Back to the problem from chapter 1. Your laptop and srv01 need a shared symmetric key, and every byte between them is visible to Eve. In 1976 Whitfield Diffie and Martin Hellman published a way for two parties to build a shared secret in public. The classic explanation uses paint, and it holds up.</p>
+  </div>
+
+  <div class="lab" id="lab-paint">
+    <div class="lab-bar"><span class="lab-tag">Lab · paint-exchange</span><h3>Diffie–Hellman with paint</h3></div>
+    <div class="lab-body">
+      <p class="lab-intro">Everyone agrees on a common paint in public. Alice and Bob each pick a secret colour and mix it with the common paint in equal parts, then swap the mixtures in public. Each adds their own secret to what they received. Both end up with the same colour. Eve saw every public mixture, but paint can't be un-mixed, and her best attempt comes out wrong.</p>
+      <div class="controls">
+        <label class="field"><span>Alice's secret hue</span><input type="range" id="pA" min="0" max="359" value="200"></label>
+        <label class="field"><span>Bob's secret hue</span><input type="range" id="pB" min="0" max="359" value="330"></label>
+      </div>
+      <div class="paint" id="paintOut"></div>
+    </div>
+  </div>
+
+  <div class="prose">
+    <p>With numbers, the "paint" is exponentiation mod a prime. Everyone knows a prime <i>p</i> and a generator <i>g</i>. Alice picks a secret <i>a</i> and publishes <i>A</i> = <i>g<sup>a</sup></i> mod <i>p</i>. Bob picks <i>b</i> and publishes <i>B</i> = <i>g<sup>b</sup></i> mod <i>p</i>. Alice computes <i>B<sup>a</sup></i>, Bob computes <i>A<sup>b</sup></i>, and both get <i>g<sup>ab</sup></i> mod <i>p</i>. Eve has <i>g</i>, <i>p</i>, <i>A</i> and <i>B</i> and needs a discrete logarithm to get any further.</p>
+  </div>
+
+  <div class="lab" id="lab-dh">
+    <div class="lab-bar"><span class="lab-tag">Lab · dh-numbers</span><h3>Diffie–Hellman mod p</h3></div>
+    <div class="lab-body">
+      <div class="controls">
+        <label class="field"><span>Public prime p, generator g</span><select id="dP"><option value="23,5">p = 23, g = 5</option><option value="97,5">p = 97, g = 5</option><option value="467,2" selected>p = 467, g = 2</option><option value="2003,5">p = 2003, g = 5</option><option value="65537,3">p = 65537, g = 3</option></select></label>
+        <label class="field"><span>Alice's secret a</span><input type="number" id="dA" value="153" min="2"></label>
+        <label class="field"><span>Bob's secret b</span><input type="number" id="dB" value="397" min="2"></label>
+      </div>
+      <div class="two-col" id="dOut"></div>
+      <div class="readout" id="dEve"></div>
+    </div>
+  </div>
+
+  <div class="prose">
+    <h3 class="sub">X25519: the same trick on a curve</h3>
+    <p>Swap "<i>g</i> to the power <i>a</i>" for "<i>a</i> times the point G" and you have elliptic-curve Diffie–Hellman. X25519 is ECDH on Curve25519, where each side's public value is 32 bytes. As <code>curve25519-sha256</code> it was OpenSSH's default key exchange from 2014 until the post-quantum hybrids took over.</p>
+    <h3 class="sub">Forward secrecy, or why a stolen laptop doesn't unlock old sessions</h3>
+    <p>SSH generates a brand-new <span class="t-sess">ephemeral</span> key pair for every connection (and every re-key), uses it for one exchange, and wipes it. Your <code>id_ed25519</code> plays no part in producing the session key; it only signs. So if someone steals your laptop next year along with a packet capture of today's session, the capture stays sealed. The numbers that could have opened it no longer exist anywhere. They can impersonate you from then on, which is why you revoke a stolen key, but they can't read the past.</p>
+    <h3 class="sub">ML-KEM: a lockbox instead of paint</h3>
+    <p>The post-quantum half of today's default works differently. ML-KEM (FIPS 203, formerly Kyber) is a <strong>key encapsulation mechanism</strong>. The client sends a public "lockbox" (an encapsulation key). The server puts a fresh random secret inside, snaps it shut, and sends back the ciphertext. Only the client can open it. That's the padlock from chapter 1, and it shows up here for a one-time ephemeral key, never for your identity key. The trapdoor is a lattice problem called module learning-with-errors, which nobody knows how to solve efficiently with or without a quantum computer.</p>
+    <p>OpenSSH doesn't bet on ML-KEM alone. <code>mlkem768x25519-sha256</code> runs X25519 <em>and</em> ML-KEM-768 in the same round trip and hashes both secrets together, <code>K = SHA-256(K_mlkem ‖ K_x25519)</code>. Eve has to break both. The cost is bandwidth: the client's share grows from 32 bytes to 1,216 (1,184 for ML-KEM plus 32 for X25519) and the server's reply from 32 to 1,120. It's specified in RFC 10042, published in 2026.</p>
+  </div>
+</section>
+
+<!-- ============ 05 ============ -->
+<section class="chapter" id="ch05">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">05</span><div><p class="eyebrow">RFC 4253 + RFC 4252, step by step</p><h2>The handshake</h2></div></header>
+  <div class="prose">
+    <p>Everything so far, in the order it actually happens on the wire. Step through with the buttons, or click the panel and use <kbd>←</kbd> <kbd>→</kbd>. Keep an eye on the middle column: that's the complete haul of someone recording the connection. Then flip the switch and put an active attacker, Mallory, in the path.</p>
+  </div>
+
+  <div class="hs" id="hs" tabindex="0" aria-label="SSH handshake stepper">
+    <div class="hs-top">
+      <div class="hs-ctrl">
+        <button class="btn small" type="button" id="hsPrev">← Prev</button>
+        <button class="btn small primary" type="button" id="hsNext">Next →</button>
+        <button class="btn small" type="button" id="hsReset">Restart</button>
+      </div>
+      <label class="switch"><input type="checkbox" id="hsMitm"> Put Mallory in the middle</label>
+    </div>
+    <ol class="hs-dots" id="hsDots"></ol>
+    <div class="hs-track" aria-hidden="true"><span class="end">your laptop</span><span class="hs-pill" id="hsPill">–</span><span class="end">srv01</span></div>
+    <div class="hs-lanes">
+      <div class="lane"><h4>Your laptop <small>ssh</small></h4><ul id="laneClient"></ul></div>
+      <div class="lane lane-wire"><h4>The wire <small>what Eve records</small></h4><ul id="laneWire"></ul></div>
+      <div class="lane"><h4>srv01 <small>sshd</small></h4><ul id="laneServer"></ul></div>
+    </div>
+    <div class="hs-text" aria-live="polite">
+      <span class="hs-step" id="hsStepNo"></span>
+      <h4 id="hsTitle"></h4>
+      <div class="hs-body" id="hsBody"></div>
+      <div class="hs-debug" id="hsDebug"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 06 ============ -->
+<section class="chapter" id="ch06">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">06</span><div><p class="eyebrow">Key files, fingerprints, randomart, the agent</p><h2>Inside the files</h2></div></header>
+  <div class="prose">
+    <p>Here's what lives in <code>~/.ssh</code> and what each file is for. The permissions matter: with <code>StrictModes yes</code> (the default), sshd ignores <code>authorized_keys</code> if your home directory, <code>~/.ssh</code> or the file itself is writable by anyone else, and ssh refuses to use a private key that other users can read.</p>
+  </div>
+<pre class="tree" style="margin-top:18px">~/.ssh/                  <span class="d">drwx------ 700</span>
+├── id_ed25519           <span class="d">-rw------- 600</span>  <span style="color:var(--term-amber)">private key, passphrase-encrypted</span>
+├── id_ed25519.pub       <span class="d">-rw-r--r-- 644</span>  <span style="color:var(--term-cyan)">public key, one line</span>
+├── known_hosts          <span class="d">-rw-r--r-- 644</span>  <span style="color:var(--term-cyan)">host keys of servers you've met</span>
+├── authorized_keys      <span class="d">-rw------- 600</span>  <span style="color:var(--term-cyan)">keys allowed to log in AS you (on the server)</span>
+└── config               <span class="d">-rw-r--r-- 644</span>  per-host settings (IdentityFile, ProxyJump…)</pre>
+
+  <div class="prose" style="margin-top:28px">
+    <h3 class="sub">A public key, decoded</h3>
+    <p>A <code>.pub</code> line has three space-separated parts: the key type, a base64 blob, and a comment. The comment is a label for humans and ssh ignores it. The blob is a sequence of length-prefixed fields: a 4-byte big-endian length, then that many bytes, repeated. Paste any public key below, including a line straight out of <code>authorized_keys</code> or <code>known_hosts</code>.</p>
+  </div>
+
+  <div class="lab" id="lab-key">
+    <div class="lab-bar"><span class="lab-tag">Lab · key-decoder</span><h3>Decode a public key, compute its fingerprint and randomart</h3></div>
+    <div class="lab-body">
+      <div class="samples" id="kSamples"></div>
+      <label class="field"><span>Public key line</span><textarea id="kIn" spellcheck="false" autocomplete="off"></textarea></label>
+      <div id="kErr" class="err" hidden></div>
+      <div id="kOut" style="display:grid;gap:16px"></div>
+    </div>
+  </div>
+
+  <div class="prose">
+    <h3 class="sub">Fingerprints and the first-connection prompt</h3>
+    <p>A fingerprint is the SHA-256 of the decoded key blob, printed as base64 without padding. It's what ssh shows you the first time you meet a host, and it's the thing you're supposed to check before typing <code>yes</code>. Get the real value over a path you trust, like the server's console or your config management:</p>
+  </div>
+  <div class="stack">
+    <div class="code" data-copy><pre><span class="c"># on srv01's console (or via IPMI / iDRAC / the hypervisor console)</span>
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+<span class="c"># 256 SHA256:WzVuwy8D+WXGTOcCPZdomeXlotiyg8aoZc6QlyD3aYQ root@srv01 (ED25519)</span>
+
+<span class="c"># show randomart next to the fingerprint on every connection</span>
+ssh -o VisualHostKey=yes srv01</pre></div>
+  </div>
+  <div class="note gotcha">
+    <span class="note-label">Gotcha</span>
+    <p><code>ssh-keyscan srv01 | ssh-keygen -lf -</code> is handy for populating known_hosts, but it fetches the key over the same network you don't trust yet. It tells you what the server <em>says</em> its key is, which is exactly what a man-in-the-middle would also say. Use it for convenience, not verification.</p>
+  </div>
+
+  <div class="prose" style="margin-top:28px">
+    <h3 class="sub">The private key file</h3>
+    <p>Modern OpenSSH writes private keys in its own <code>openssh-key-v1</code> format. This is the actual structure of a passphrase-protected Ed25519 key generated with <code>ssh-keygen -t ed25519 -a 100</code>: 290 bytes once the base64 armor is removed.</p>
+  </div>
+  <div class="anat" role="table" aria-label="openssh-key-v1 file structure">
+    <div class="anat-row"><span class="f">-----BEGIN OPENSSH PRIVATE KEY-----</span><span class="d">PEM-style armor around base64.</span></div>
+    <div class="anat-row"><span class="f">"openssh-key-v1\0"</span><span class="d">Magic string. Older tools wrote PEM/PKCS#1 (<code>BEGIN RSA PRIVATE KEY</code>) instead.</span></div>
+    <div class="anat-row"><span class="f">ciphername: <span class="t-priv">aes256-ctr</span></span><span class="d">Cipher protecting the private section. <code>none</code> if you skipped the passphrase.</span></div>
+    <div class="anat-row"><span class="f">kdfname: <span class="t-priv">bcrypt</span></span><span class="d">Turns your passphrase into that AES key. Deliberately slow.</span></div>
+    <div class="anat-row"><span class="f">kdfoptions: salt (16 B), rounds = 100</span><span class="d">The <code>-a 100</code> lands here. The default is 16. More rounds make every guess against a stolen file slower, and your own unlock slightly slower.</span></div>
+    <div class="anat-row"><span class="f">number of keys: 1</span><span class="d">Always 1 in practice.</span></div>
+    <div class="anat-row"><span class="f t-pub">public key (51 B)</span><span class="d">The same blob as the <code>.pub</code> file, stored unencrypted, so tools can identify the key without asking for the passphrase.</span></div>
+    <div class="anat-row enc"><span class="f t-priv">encrypted private section (160 B)</span><span class="d">Everything below is ciphertext until the passphrase is supplied.</span></div>
+    <div class="anat-row enc indent"><span class="f">checkint, checkint</span><span class="d">The same random 32-bit number twice. If they match after decryption, the passphrase was right.</span></div>
+    <div class="anat-row enc indent"><span class="f">key type, public key</span><span class="d"><code>ssh-ed25519</code> and the 32-byte public key again.</span></div>
+    <div class="anat-row enc indent"><span class="f t-priv">private key (64 B)</span><span class="d">For Ed25519: the 32-byte secret seed followed by the 32-byte public key.</span></div>
+    <div class="anat-row enc indent"><span class="f">comment, padding 1 2 3…</span><span class="d">The comment lives in the encrypted part. Padding brings it to the cipher's block size.</span></div>
+  </div>
+  <div class="prose">
+    <p>No passphrase means <code>ciphername none</code>: anyone who can read the file is you. Add or change a passphrase in place with <code>ssh-keygen -p -a 100 -f ~/.ssh/id_ed25519</code>.</p>
+
+    <h3 class="sub">authorized_keys can do more than allow</h3>
+    <p>Each line in <code>authorized_keys</code> can start with options that fence in what that key is allowed to do. This is how you give a backup job a key without giving it a shell.</p>
+  </div>
+  <div class="line-anatomy" style="margin-top:14px"><span class="k-sess" style="border:0">restrict,from="192.0.2.20",command="/usr/local/bin/backup-receive"</span> <span class="k-pub" style="border:0">ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI…</span> <span class="muted">backup@srv01</span></div>
+  <div class="prose la-legend">
+    <ul>
+      <li><code>restrict</code> turns off PTY allocation, port, agent and X11 forwarding in one word (OpenSSH 7.2+). Add back only what you need, e.g. <code>restrict,pty</code>.</li>
+      <li><code>from="…"</code> only accepts the key from matching source addresses or hostnames.</li>
+      <li><code>command="…"</code> forces that command no matter what the client asks to run. The requested command is still available to it in <code>$SSH_ORIGINAL_COMMAND</code>.</li>
+      <li><code>expiry-time="20271231"</code> stops accepting the key after a date. <code>verify-required</code> demands a PIN or biometric on security-key logins.</li>
+    </ul>
+  </div>
+
+  <div class="prose" style="margin-top:24px">
+    <h3 class="sub">ssh-agent: the key stays put, the signatures travel</h3>
+    <p>The agent holds decrypted private keys in memory and signs on request over a Unix socket (<code>$SSH_AUTH_SOCK</code>). ssh never touches the key itself; in step 9 of the handshake it just asks the agent to sign. That design is why agent forwarding is dangerous: <code>ForwardAgent yes</code> exposes that socket on the remote host, and anyone with root there can ask your agent to sign logins to anywhere your key works, for as long as you're connected. They never get the key. They don't need it.</p>
+  </div>
+  <div class="stack">
+    <div class="code" data-copy><pre><span class="c"># hop through a bastion without exposing your agent to it</span>
+ssh -J bastion.example.net srv01
+
+<span class="c"># load a key with a lifetime, and ask for confirmation on every use</span>
+ssh-add -t 8h -c ~/.ssh/id_ed25519
+
+<span class="c"># OpenSSH 8.9+: only allow this key to be used to reach srv01, even through forwarding</span>
+ssh-add -h srv01 ~/.ssh/id_ed25519</pre></div>
+  </div>
+</section>
+
+<!-- ============ 07 ============ -->
+<section class="chapter" id="ch07">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">07</span><div><p class="eyebrow">Every key type, KEX and cipher in OpenSSH</p><h2>Field guide to algorithms</h2></div></header>
+  <div class="prose">
+    <h3 class="sub" style="margin-top:0">First, key type vs. signature algorithm</h3>
+    <p>A <strong>key type</strong> is what's in the file. A <strong>signature algorithm</strong> is how that key signs. For most types they're the same name, but RSA is the famous exception. One RSA key (type <code>ssh-rsa</code>) can sign three ways: <code>ssh-rsa</code> (with SHA-1), <code>rsa-sha2-256</code> and <code>rsa-sha2-512</code>. OpenSSH 8.8 (September 2021) disabled the SHA-1 flavour by default after researchers showed chosen-prefix SHA-1 collisions cost under US$50K. Your 2016 RSA key still works fine; it just signs with SHA-512 now. What breaks is talking to ancient devices that only understand the SHA-1 flavour, and the fix belongs in a per-host block, never a global one:</p>
+  </div>
+  <div class="stack">
+    <div class="code" data-copy><pre><span class="c"># ~/.ssh/config: re-enable SHA-1 RSA signatures for ONE legacy box</span>
+Host old-switch
+    HostKeyAlgorithms +ssh-rsa
+    PubkeyAcceptedAlgorithms +ssh-rsa</pre></div>
+  </div>
+
+  <div class="prose" id="keytypes"><h3 class="sub">Key types you can generate today</h3></div>
+  <div class="cards">
+    <article class="card">
+      <div class="card-head"><div><h3>Ed25519</h3><div class="wire">ssh-ed25519</div></div><span class="pill p-rec">Recommended</span></div>
+      <dl>
+        <div><dt>Math</dt><dd>EdDSA on edwards25519 (Curve25519), prime 2<sup>255</sup> − 19</dd></div>
+        <div><dt>Security</dt><dd>~128-bit classical; broken by a large quantum computer</dd></div>
+        <div><dt>Size</dt><dd>32 B public key, 64 B signature. The whole type + key is 80 characters.</dd></div>
+        <div><dt>History</dt><dd>In OpenSSH since 6.5 (Jan 2014). <code>ssh-keygen</code>'s default since 9.5 (Oct 2023).</dd></div>
+        <div><dt>Why</dt><dd>Deterministic nonces, fast, constant-time, one fixed size so there's no wrong parameter to pick.</dd></div>
+        <div><dt>Watch</dt><dd>Some FIPS-mode appliances refuse it (Junos in FIPS mode takes only <code>ssh-ecdsa</code> and <code>ssh-rsa</code>). Pre-2014 gear won't know it.</dd></div>
+      </dl>
+      <div class="cmd">ssh-keygen -t ed25519 -a 100</div>
+    </article>
+    <article class="card">
+      <div class="card-head"><div><h3>Ed25519-SK</h3><div class="wire">sk-ssh-ed25519@openssh.com</div></div><span class="pill p-rec">Recommended · hardware</span></div>
+      <dl>
+        <div><dt>Math</dt><dd>Ed25519, computed inside a FIDO2 security key</dd></div>
+        <div><dt>Where</dt><dd>The private key never exists on disk. The file in <code>~/.ssh</code> is a key handle that's useless without the token.</dd></div>
+        <div><dt>History</dt><dd>OpenSSH 8.2 (Feb 2020). Client and server both need 8.2+.</dd></div>
+        <div><dt>Options</dt><dd>Touch required by default. <code>-O verify-required</code> adds a PIN. <code>-O resident</code> stores the handle on the token so <code>ssh-keygen -K</code> can pull it onto a new machine.</dd></div>
+        <div><dt>Watch</dt><dd>Needs a token with Ed25519 support (YubiKey firmware 5.2.3+, most FIDO2 keys sold in recent years). Enroll two tokens, or you're one lost keychain from a lockout.</dd></div>
+      </dl>
+      <div class="cmd">ssh-keygen -t ed25519-sk -O resident -O verify-required</div>
+    </article>
+    <article class="card">
+      <div class="card-head"><div><h3>ECDSA-SK</h3><div class="wire">sk-ecdsa-sha2-nistp256@openssh.com</div></div><span class="pill p-ok">Good · hardware</span></div>
+      <dl>
+        <div><dt>Math</dt><dd>ECDSA on P-256 inside the token</dd></div>
+        <div><dt>Why</dt><dd>Works with nearly every FIDO token ever made, including old U2F-only keys that can't do Ed25519.</dd></div>
+        <div><dt>Watch</dt><dd>U2F-only tokens can't store resident keys or check a PIN.</dd></div>
+      </dl>
+      <div class="cmd">ssh-keygen -t ecdsa-sk</div>
+    </article>
+    <article class="card">
+      <div class="card-head"><div><h3>RSA</h3><div class="wire">key: ssh-rsa · sigs: rsa-sha2-512, rsa-sha2-256</div></div><span class="pill p-ok">Acceptable · compat</span></div>
+      <dl>
+        <div><dt>Math</dt><dd>Factoring (1977)</dd></div>
+        <div><dt>Security</dt><dd>2048 ≈ 112-bit, 3072 ≈ 128-bit. 4096 sits between 128 and 192.</dd></div>
+        <div><dt>Size</dt><dd>3072-bit: 384 B signature, ~550-character public key line</dd></div>
+        <div><dt>History</dt><dd>Default size raised to 3072 in OpenSSH 8.0 (Apr 2019). SHA-1 signatures off by default since 8.8.</dd></div>
+        <div><dt>Watch</dt><dd>Slow to sign at large sizes, huge keys. Anything under 2048 should be retired now.</dd></div>
+      </dl>
+      <div class="cmd">ssh-keygen -t rsa -b 4096 -a 100</div>
+    </article>
+    <article class="card">
+      <div class="card-head"><div><h3>ECDSA</h3><div class="wire">ecdsa-sha2-nistp256 / 384 / 521</div></div><span class="pill p-ok">Acceptable · FIPS</span></div>
+      <dl>
+        <div><dt>Math</dt><dd>ECDSA on NIST P-256, P-384, P-521</dd></div>
+        <div><dt>Security</dt><dd>128 / 192 / 256-bit classical</dd></div>
+        <div><dt>History</dt><dd>OpenSSH 5.7 (Jan 2011)</dd></div>
+        <div><dt>Use when</dt><dd>FIPS mode demands NIST curves, or your hardware only offers P-256 (PIV smartcards, TPMs, the Mac Secure Enclave).</dd></div>
+        <div><dt>Watch</dt><dd>Needs a perfect random nonce per signature (see chapter 3). Unexplained curve seeds.</dd></div>
+      </dl>
+      <div class="cmd">ssh-keygen -t ecdsa -b 384 -a 100</div>
+    </article>
+    <article class="card featured">
+      <div class="card-head"><div><h3>ML-DSA-44 + Ed25519</h3><div class="wire">ssh-mldsa44-ed25519@openssh.com</div></div><span class="pill p-exp">Experimental · newest</span></div>
+      <dl>
+        <div><dt>Math</dt><dd>Composite: an ML-DSA-44 signature (FIPS 204, module lattices) plus an Ed25519 signature. Both must verify, so a forger has to break both.</dd></div>
+        <div><dt>Security</dt><dd>Post-quantum via ML-DSA; never weaker than Ed25519 alone</dd></div>
+        <div><dt>Size</dt><dd>1,344 B public key, 2,484 B signature. Roughly 40× Ed25519.</dd></div>
+        <div><dt>History</dt><dd>Added in OpenSSH 10.4 (6 Jul 2026), off by default. Spec is an individual Internet-Draft by OpenSSH's Damien Miller (June 2026, revised August 2026 to also define ML-DSA-87 + P-384).</dd></div>
+        <div><dt>Watch</dt><dd>Nothing else speaks it yet: no PuTTY, no Git hosting, no phone clients. The wire format may still change, which would mean regenerating. Keep an Ed25519 key alongside it.</dd></div>
+      </dl>
+      <div class="cmd">ssh-keygen -t mldsa44-ed25519      # OpenSSH 10.4+</div>
+    </article>
+  </div>
+
+  <div class="prose"><h3 class="sub">Retired, removed, or never shipped</h3></div>
+  <div class="retired" style="margin-top:14px">
+    <div><span class="n">DSA<small>ssh-dss</small></span><span><span class="pill p-dead">Removed · 10.0</span></span><span class="d">Fixed 1024-bit keys with SHA-1, about 80-bit security. Disabled by default in 7.0 (2015), compile-time off in 9.8, deleted in 10.0 (April 2025). An <code>id_dsa</code> is now a paperweight.</span></div>
+    <div><span class="n">SHA-1 RSA signatures<small>ssh-rsa as a signature algorithm</small></span><span><span class="pill p-legacy">Off by default · 8.8</span></span><span class="d">The key type lives on; only the SHA-1 signing mode is disabled. Per-host re-enable shown above.</span></div>
+    <div><span class="n">RSA under 2048 bits</span><span><span class="pill p-dead">Retire</span></span><span class="d">1024-bit RSA is below every current guideline. OpenSSH 9.1+ refuses RSA keys smaller than <code>RequiredRSASize</code> (default 1024).</span></div>
+    <div><span class="n">XMSS<small>ssh-xmss@openssh.com</small></span><span><span class="pill p-dead">Removed · 10.1</span></span><span class="d">An experimental stateful hash-based post-quantum signature, never enabled by default. Dropped in October 2025, with a note that a new post-quantum signature scheme would follow.</span></div>
+    <div><span class="n">Ed448<small>ssh-ed448</small></span><span><span class="pill p-def">Not in OpenSSH</span></span><span class="d">Defined in RFC 8709 alongside Ed25519. OpenSSH never implemented it.</span></div>
+    <div><span class="n">Certificates<small>*-cert-v01@openssh.com</small></span><span><span class="pill p-ok">Wrapper</span></span><span class="d">Not an algorithm. A certificate is a public key plus a CA's signature, a key ID, allowed usernames (principals) and a validity window. Works with any type above.</span></div>
+  </div>
+
+  <div class="chart" id="sizeChart">
+    <div class="chart-title">What each signature type puts on the wire</div>
+    <div class="chart-sub">Raw public key and signature sizes in bytes, log scale. Classical algorithms on top, post-quantum below for comparison. Only ML-DSA-44 + Ed25519 is implemented in OpenSSH, and experimentally at that.</div>
+    <div class="chart-legend"><span><i style="background:var(--mark-cyan)"></i>Public key</span><span><i style="background:var(--mark-amber)"></i>Signature (made with the private key)</span></div>
+    <svg id="sizeSvg" role="img" aria-label="Dot plot of public key and signature sizes"></svg>
+    <details><summary>Data table</summary><div class="tbl-wrap" style="margin:8px 0 0"><table id="sizeTable"></table></div></details>
+  </div>
+
+  <div class="chart" id="speedChart">
+    <div class="chart-title">How fast each one signs and verifies</div>
+    <div class="chart-sub">Operations per second, log scale, measured for this page with <code>openssl speed</code> (OpenSSL 3.0.13, one thread of a 2.1 GHz Xeon cloud VM). Treat the shape as meaningful and the absolute numbers as one machine's. P-256 benefits from hand-tuned assembly in OpenSSL.</div>
+    <div class="chart-legend"><span><i style="background:var(--mark-amber)"></i>Sign (private key)</span><span><i style="background:var(--mark-cyan)"></i>Verify (public key)</span></div>
+    <svg id="speedSvg" role="img" aria-label="Dot plot of sign and verify operations per second"></svg>
+    <details><summary>Data table</summary><div class="tbl-wrap" style="margin:8px 0 0"><table id="speedTable"></table></div></details>
+  </div>
+  <div class="prose">
+    <p>Two takeaways. RSA signing cost climbs steeply with key size (4096 signs about 5× slower than 2048) while RSA verification stays cheap. And for a login, all of these are effectively instant: your client signs once per connection. Speed matters on busy servers, which sign with their host key on every single handshake.</p>
+  </div>
+
+  <div class="prose"><h3 class="sub">How big a key buys how much security</h3>
+    <p>NIST SP 800-57's comparison, drawn to one scale. The bars are key lengths in bits. "128-bit security" means the best known attack costs about 2<sup>128</sup> operations, the same as brute-forcing a 128-bit AES key.</p></div>
+  <div class="ladder" id="ladder" role="table" aria-label="Security strength vs key size"></div>
+
+  <div class="prose" id="kex"><h3 class="sub">Key exchange algorithms</h3></div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>What it is</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>mlkem768x25519-sha256</code></td><td>ML-KEM-768 + X25519 hybrid</td><td><span class="pill p-rec">Default · PQ</span></td><td>Added in 9.9 (Sep 2024), default since 10.0 (Apr 2025). RFC 10042.</td></tr>
+        <tr><td><code>sntrup761x25519-sha512</code><br><code class="muted">…-sha512@openssh.com</code></td><td>Streamlined NTRU Prime + X25519 hybrid</td><td><span class="pill p-rec">Supported · PQ</span></td><td>Default from 9.0 (Apr 2022) to 9.9. Still post-quantum. The IANA name arrived in 9.9; older servers only know the <code>@openssh.com</code> spelling.</td></tr>
+        <tr><td><code>curve25519-sha256</code></td><td>X25519 ECDH</td><td><span class="pill p-legacy">Classical</span></td><td>Default 2014 to 2022. Solid today, but OpenSSH 10.1+ warns when a connection lands here.</td></tr>
+        <tr><td><code>ecdh-sha2-nistp256/384/521</code></td><td>ECDH on NIST curves</td><td><span class="pill p-legacy">Classical</span></td><td>Same warning. Common on network gear and FIPS builds.</td></tr>
+        <tr><td><code>diffie-hellman-group14/16/18-*</code><br><code>…-group-exchange-sha256</code></td><td>Finite-field DH, 2048 to 8192-bit</td><td><span class="pill p-legacy">Classical</span></td><td>Removed from sshd's default list in 10.0 as slow with no upside. The client still offers them for old servers.</td></tr>
+        <tr><td><code>diffie-hellman-group1-sha1</code><br><code>…-group14-sha1</code></td><td>1024-bit or SHA-1 finite-field DH</td><td><span class="pill p-dead">Legacy</span></td><td>Off by default for years. Group 1 is the 1024-bit group the Logjam research warned about.</td></tr>
+        <tr><td><code>mlkem768nistp256-sha256</code><br><code>mlkem1024nistp384-sha384</code></td><td>ML-KEM + NIST-curve hybrids</td><td><span class="pill p-def">RFC 10042</span></td><td>Defined in the same RFC for environments that need NIST curves. OpenSSH's default is the X25519 variant.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="prose" id="ciphers"><h3 class="sub">Ciphers and MACs</h3>
+    <p>After the key exchange, every packet is protected by a symmetric cipher. "AEAD" ciphers (the first two rows) encrypt and authenticate in one pass, which is why the transcript says <code>MAC: &lt;implicit&gt;</code>.</p></div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>chacha20-poly1305@openssh.com</code></td><td>AEAD stream cipher</td><td><span class="pill p-rec">Default · 1st</span></td><td>Fast everywhere, including CPUs without AES hardware.</td></tr>
+        <tr><td><code>aes128-gcm@openssh.com</code><br><code>aes256-gcm@openssh.com</code></td><td>AEAD block cipher</td><td><span class="pill p-rec">Preferred</span></td><td>Moved ahead of CTR in 10.0. Very fast with AES-NI.</td></tr>
+        <tr><td><code>aes128/192/256-ctr</code> + <code>hmac-sha2-256-etm@openssh.com</code></td><td>Cipher + separate MAC</td><td><span class="pill p-ok">Fine</span></td><td>Use the <code>-etm</code> (encrypt-then-MAC) variants.</td></tr>
+        <tr><td><code>aes*-cbc</code>, <code>3des-cbc</code>, <code>arcfour</code></td><td>Old block/stream ciphers</td><td><span class="pill p-dead">Legacy</span></td><td>Disabled or removed. If a device only offers these, it also needs a firmware update.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note why">
+    <span class="note-label">Terrapin, briefly</span>
+    <p>CVE-2023-48795 let an attacker in the path quietly delete a message at the very start of encryption, affecting <code>chacha20-poly1305</code> and CBC with EtM MACs. The practical impact was small (it could strip some keystroke-timing protections), and OpenSSH 9.6 fixed it with "strict KEX", which both sides must support. <code>ssh-audit</code> tells you if a server is still exposed.</p>
+  </div>
+
+  <div class="prose"><h3 class="sub">How we got here</h3></div>
+  <ol class="timeline">
+    <li><span class="yr">1995</span><span class="ev"><b>SSH-1.</b> Tatu Ylönen writes it after a password-sniffing attack on his university's network.</span></li>
+    <li><span class="yr">1999</span><span class="ev"><b>OpenSSH</b> forks from the last freely licensed SSH release, as part of OpenBSD 2.6.</span></li>
+    <li><span class="yr">2006</span><span class="ev"><b>SSH-2 standardized</b> as RFCs 4251–4254. DSA is the only mandatory signature algorithm, because the alternatives were patent-encumbered at the time.</span></li>
+    <li><span class="yr">2011</span><span class="ev"><b>ECDSA keys and ECDH</b> key exchange arrive (OpenSSH 5.7).</span></li>
+    <li><span class="yr">2014</span><span class="ev"><b>Ed25519 keys and curve25519-sha256</b> (6.5). Curve25519 becomes the default key exchange.</span></li>
+    <li><span class="yr">2015</span><span class="ev"><b>DSA disabled</b> by default (7.0).</span></li>
+    <li><span class="yr">2017</span><span class="ev"><b>SSH-1 removed</b> entirely (7.6).</span></li>
+    <li><span class="yr">2019</span><span class="ev"><b>Default RSA size → 3072</b> (8.0), following NIST SP 800-57.</span></li>
+    <li><span class="yr">2020</span><span class="ev"><b>FIDO security keys:</b> ecdsa-sk and ed25519-sk (8.2).</span></li>
+    <li><span class="yr">2021</span><span class="ev"><b>SHA-1 RSA signatures</b> off by default (8.8).</span></li>
+    <li><span class="yr">2022</span><span class="ev"><b>Post-quantum by default:</b> sntrup761x25519 hybrid key exchange (9.0).</span></li>
+    <li><span class="yr">2023</span><span class="ev"><b>Ed25519 becomes ssh-keygen's default</b> (9.5). Terrapin disclosed; strict KEX ships (9.6).</span></li>
+    <li><span class="yr">2024</span><span class="ev"><b>mlkem768x25519-sha256</b> added (9.9), built on the brand-new FIPS 203.</span></li>
+    <li><span class="yr">2025</span><span class="ev"><b>DSA deleted; ML-KEM hybrid becomes default</b> (10.0, April). The client starts warning on non-post-quantum key exchange; XMSS removed (10.1, October).</span></li>
+    <li class="now"><span class="yr">2026</span><span class="ev"><b>RFC 10042</b> standardizes the ML-KEM hybrids. <b>Experimental ML-DSA-44 + Ed25519</b> signatures in 10.4 (July). <b>OpenSSH 10.5</b> (11 August) is the current release as of this page.</span></li>
+  </ol>
+</section>
+
+<!-- ============ 08 ============ -->
+<section class="chapter" id="ch08">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">08</span><div><p class="eyebrow">Shor, Grover, harvest-now-decrypt-later</p><h2>The quantum problem</h2></div></header>
+  <div class="prose">
+    <p>Two quantum algorithms matter here, and they hit very differently.</p>
+    <ul>
+      <li><strong>Shor's algorithm (1994)</strong> factors integers and computes discrete logarithms in polynomial time on a large enough quantum computer. That takes out RSA, finite-field DH, ECDH, ECDSA and Ed25519: every public-key algorithm in this page that doesn't start with "ML-". Bigger keys don't meaningfully help; RSA-4096 falls to the same attack as RSA-2048.</li>
+      <li><strong>Grover's algorithm (1996)</strong> gives a square-root speedup on brute-force search. It roughly halves the effective strength of symmetric keys, so AES-256 and ChaCha20's 256-bit key drop to about 128 bits. That's still fine. Your session ciphers don't need to change.</li>
+    </ul>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Piece of SSH</th><th>Against today's computers</th><th>Against a large quantum computer</th><th>Where OpenSSH is</th></tr></thead>
+      <tbody>
+        <tr><td>Signatures: Ed25519, ECDSA, RSA</td><td class="ok-text">Strong</td><td class="bad-text">Broken (Shor)</td><td>PQ composite signatures experimental since 10.4</td></tr>
+        <tr><td>Classical key exchange: X25519, ECDH, DH</td><td class="ok-text">Strong</td><td class="bad-text">Broken (Shor)</td><td>Hybrids default since 9.0; warning since 10.1</td></tr>
+        <tr><td>ML-KEM-768, sntrup761</td><td class="ok-text">Strong</td><td class="ok-text">Believed strong</td><td>In every default connection</td></tr>
+        <tr><td>AES-256-GCM, ChaCha20-Poly1305</td><td class="ok-text">Strong</td><td class="ok-text">~128-bit (Grover), fine</td><td>No change needed</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="prose">
+    <h3 class="sub">Why key exchange went first</h3>
+    <p>An attacker doesn't need a quantum computer today to benefit from one later. They can record your encrypted SSH sessions now, store them, and decrypt them once the hardware exists. That's <strong>"store now, decrypt later"</strong> (also called harvest now, decrypt later), and it means any session protected by a classical key exchange is only as private as the time until a cryptographically relevant quantum computer shows up.</p>
+    <p>Signatures don't have that problem. A signature only has to hold up at the moment you log in; forging one in 2035 doesn't let anyone into a session from 2026. The deadline for signatures is "retire classical keys before the quantum computer exists," not "now." That's why OpenSSH made post-quantum key exchange the default in 2022 and only shipped experimental post-quantum signatures in 2026.</p>
+    <p>Since 10.1, the client says so when a connection falls back to a classical exchange:</p>
+  </div>
+<pre class="hs-warn" style="margin-top:14px">** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html</pre>
+
+  <div class="prose" style="margin-top:28px">
+    <p>Whether that matters for a given connection comes down to a comparison usually credited to Michele Mosca: if the time your data must stay secret (<i>X</i>) plus the time it takes you to migrate (<i>Y</i>) is longer than the time until a quantum computer can break your crypto (<i>Z</i>), you're already exposed.</p>
+  </div>
+
+  <div class="lab" id="lab-mosca">
+    <div class="lab-bar"><span class="lab-tag">Lab · mosca</span><h3>Is recorded traffic from today at risk?</h3></div>
+    <div class="lab-body">
+      <div class="presets" id="mPresets"></div>
+      <div class="controls">
+        <label class="field"><span>X · must stay secret for <b id="mXo">10</b> yr</span><input type="range" id="mX" min="0" max="30" value="10"></label>
+        <label class="field"><span>Y · years until migrated <b id="mYo">3</b></span><input type="range" id="mY" min="0" max="15" value="3"></label>
+        <label class="field"><span>Z · years until a quantum break <b id="mZo">10</b></span><input type="range" id="mZ" min="3" max="30" value="10"></label>
+        <label class="switch"><input type="checkbox" id="mPQ"> This traffic already uses a PQ hybrid KEX</label>
+      </div>
+      <div class="mosca-viz" id="mViz"></div>
+      <div class="mosca-verdict" id="mVerdict"></div>
+      <p class="small muted">Nobody knows <i>Z</i>. OpenSSH summarizes current estimates as 5 to 20 years, with many observers expecting the mid-2030s. NIST's draft transition plan (IR 8547) deprecates RSA and elliptic-curve algorithms after 2030 and disallows them after 2035.</p>
+    </div>
+  </div>
+
+  <div class="prose">
+    <h3 class="sub">Why hybrids, instead of just switching</h3>
+    <p>The post-quantum algorithms are young. In 2022, SIKE, which had made it to the fourth round of NIST's own competition, was broken with a classical attack that ran in about an hour on a single laptop core. Combining ML-KEM with X25519 means the worst case, if ML-KEM falls the same way, is exactly the X25519 security everyone had the day before. The composite signatures follow the same logic.</p>
+    <h3 class="sub">The standards, as of September 2026</h3>
+    <ul>
+      <li><strong>FIPS 203, ML-KEM</strong> (key encapsulation, was Kyber). Final, August 2024. This is what's in your key exchange.</li>
+      <li><strong>FIPS 204, ML-DSA</strong> (signatures, was Dilithium). Final, August 2024. The PQ half of OpenSSH's experimental composite key.</li>
+      <li><strong>FIPS 205, SLH-DSA</strong> (hash-based signatures, was SPHINCS+). Final, August 2024. Conservative math, very large signatures (7.8 KB and up).</li>
+      <li><strong>FIPS 206, FN-DSA</strong> (was Falcon). Still a draft; final publication expected late 2026 or early 2027. Compact signatures, hard to implement safely.</li>
+    </ul>
+    <h3 class="sub">Check your own connections</h3>
+  </div>
+  <div class="stack">
+    <div class="code" data-copy><pre><span class="c"># which key exchange did this connection negotiate?</span>
+ssh -v srv01 exit 2&gt;&amp;1 | grep 'kex: algorithm'
+
+<span class="c"># OpenSSH 10.3+: inside a live session type  ~I  for connection info,</span>
+<span class="c"># or query a multiplexed master connection:</span>
+ssh -O conninfo srv01
+
+<span class="c"># what your client supports, and what the server will offer (run on the server)</span>
+ssh -Q kex
+sudo sshd -T | grep -i '^kexalgorithms'
+
+<span class="c"># silence the warning for one box you genuinely can't upgrade, never globally</span>
+Match host old-switch
+    WarnWeakCrypto no-pq-kex</pre></div>
+  </div>
+</section>
+
+<!-- ============ 09 ============ -->
+<section class="chapter" id="ch09">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">09</span><div><p class="eyebrow">Recommendations, September 2026</p><h2>What to actually run</h2></div></header>
+  <div class="prose">
+    <p>The short version: <strong>Ed25519 for everyday keys, Ed25519-SK for keys that matter, one key pair per device, a passphrase plus an agent with a timeout, and servers on OpenSSH 9.9 or newer</strong> so the key exchange is post-quantum. RSA and ECDSA only where something forces your hand. The ML-DSA composite is for your lab, not your fleet. Answer a few questions for the exact command:</p>
+  </div>
+
+  <div class="lab" id="lab-pick">
+    <div class="lab-bar"><span class="lab-tag">Lab · key-picker</span><h3>Which key should I generate?</h3></div>
+    <div class="lab-body picker">
+      <form id="pkForm" style="display:grid;gap:18px" onsubmit="return false">
+        <fieldset class="q-group">
+          <legend>Where should the private key live?</legend>
+          <label class="opt"><input type="radio" name="pkWhere" value="file" checked><span>A file on this computer<small>Laptop, desktop, workstation</small></span></label>
+          <label class="opt"><input type="radio" name="pkWhere" value="hw"><span>A hardware security key<small>YubiKey, SoloKey, Nitrokey, other FIDO2 tokens</small></span></label>
+          <label class="opt"><input type="radio" name="pkWhere" value="auto"><span>An automation account<small>Backups, replication, cron, CI</small></span></label>
+        </fieldset>
+        <fieldset class="q-group" id="pkTargetsG">
+          <legend>What will it log into?</legend>
+          <label class="opt"><input type="radio" name="pkTarget" value="modern" checked><span>Anything reasonably modern<small>OpenSSH 6.5+ servers, GitHub, most network OSes</small></span></label>
+          <label class="opt"><input type="radio" name="pkTarget" value="rsa"><span>Old gear that only takes RSA</span></label>
+          <label class="opt"><input type="radio" name="pkTarget" value="fips"><span>A FIPS-mode device<small>NIST curves or RSA only</small></span></label>
+        </fieldset>
+        <fieldset class="q-group" id="pkTokenG" hidden>
+          <legend>Your token</legend>
+          <label class="opt"><input type="radio" name="pkTok" value="ed" checked><span>Supports Ed25519<small>YubiKey 5 series with firmware 5.2.3+, most current FIDO2 keys</small></span></label>
+          <label class="opt"><input type="radio" name="pkTok" value="ec"><span>Older, or not sure<small>Falls back to ECDSA P-256</small></span></label>
+          <label class="opt"><input type="checkbox" id="pkPin" checked><span>Require the PIN on every use<small>-O verify-required</small></span></label>
+          <label class="opt"><input type="checkbox" id="pkRes" checked><span>Store the key handle on the token<small>-O resident, so you can load it on a new machine</small></span></label>
+        </fieldset>
+        <label class="field"><span>Device name for the comment</span><input type="text" id="pkDev" value="laptop" autocomplete="off"></label>
+        <label class="opt"><input type="checkbox" id="pkPQ"><span>Also show the experimental post-quantum key<small>For a lab box running OpenSSH 10.4+</small></span></label>
+      </form>
+      <div class="pick-out" id="pkOut" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div class="prose">
+    <h3 class="sub">Harden the server side</h3>
+    <p>A drop-in file keeps your changes separate from the distro's <code>sshd_config</code>. On OpenSSH 10.x the default key exchange list is already right, so this mostly shuts doors rather than picking algorithms.</p>
+  </div>
+  <div class="stack">
+    <div>
+      <div class="code-label">/etc/ssh/sshd_config.d/10-hardening.conf</div>
+      <div class="code" data-copy><pre>PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+AuthenticationMethods publickey
+PubkeyAcceptedAlgorithms ssh-ed25519,sk-ssh-ed25519@openssh.com,ssh-ed25519-cert-v01@openssh.com,rsa-sha2-512,rsa-sha2-256
+<span class="c"># OpenSSH 9.1+: refuse small RSA keys</span>
+RequiredRSASize 3072
+<span class="c"># Optional: make post-quantum KEX mandatory (9.9+ server). Clients older than 9.0 will fail to connect.</span>
+<span class="c"># KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com</span></pre></div>
+    </div>
+    <div class="code" data-copy><pre><span class="c"># validate before reloading: a typo'd algorithm name stops sshd from starting</span>
+sudo sshd -t &amp;&amp; sudo systemctl reload ssh     <span class="c"># "sshd" on RHEL-family</span>
+
+<span class="c"># confirm what's actually in effect</span>
+sudo sshd -T | grep -Ei '^(passwordauth|kexalgorithms|pubkeyaccepted|requiredrsa)'
+
+<span class="c"># audit from the outside (github.com/jtesta/ssh-audit)</span>
+pipx install ssh-audit &amp;&amp; ssh-audit srv01</pre></div>
+  </div>
+  <div class="note gotcha">
+    <span class="note-label">Gotcha</span>
+    <p>Every algorithm name in <code>KexAlgorithms</code> or <code>PubkeyAcceptedAlgorithms</code> has to exist in <em>that server's</em> OpenSSH, or sshd refuses to start. <code>mlkem768x25519-sha256</code> needs 9.9+, the bare <code>sntrup761x25519-sha512</code> spelling needs 9.9+, and Ubuntu 24.04 ships 9.6. Run <code>ssh -Q kex</code> on the box and <code>sshd -t</code> before you reload, and keep a second session open while you test.</p>
+  </div>
+
+  <div class="prose" style="margin-top:26px">
+    <h3 class="sub">Audit the keys you already have</h3>
+  </div>
+  <div class="stack">
+    <div class="code" data-copy><pre><span class="c"># your own keys: bits, fingerprint, comment, type</span>
+for f in ~/.ssh/*.pub; do ssh-keygen -lf "$f"; done
+
+<span class="c"># who can log in as you on this server</span>
+ssh-keygen -lf ~/.ssh/authorized_keys
+
+<span class="c"># flag anything that should be retired</span>
+ssh-keygen -lf ~/.ssh/authorized_keys | awk '$NF=="(DSA)" || ($NF=="(RSA)" &amp;&amp; $1&lt;3072) {print "RETIRE:", $0}'</pre></div>
+  </div>
+
+  <div class="note field">
+    <span class="note-label">Field note · Junos</span>
+    <p>Junos takes Ed25519 directly: <code>set system login user alice authentication ssh-ed25519 "ssh-ed25519 AAAA… alice@laptop-202609"</code>. Junos also accepts <code>ssh-ecdsa</code> and <code>ssh-rsa</code>, and in FIPS mode Ed25519 is refused. Network OSes tend to trail OpenSSH on key exchange, so expect the post-quantum warning when you manage switches and routers. Silence it per host with <code>WarnWeakCrypto no-pq-kex</code> rather than globally, so you still notice when a server regresses.</p>
+  </div>
+</section>
+
+<!-- ============ 10 ============ -->
+<section class="chapter" id="ch10">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">10</span><div><p class="eyebrow">15 questions · keys 1–4, Enter for next</p><h2>Check yourself</h2></div></header>
+  <div class="prose"><p>Every question has an explanation, including the ones you get right. Wrong answers are where the learning is, so guess boldly.</p></div>
+  <div class="quiz" id="quiz" tabindex="-1">
+    <div class="quiz-top"><div class="qprog" id="qProg" aria-hidden="true"></div><span class="qscore" id="qScore"></span></div>
+    <div class="quiz-body" id="qBody" aria-live="polite"></div>
+  </div>
+</section>
+
+<section class="chapter" id="sources">
+  <header class="ch-head"><span class="ch-num" aria-hidden="true">··</span><div><p class="eyebrow">Where the facts come from</p><h2>Sources</h2></div></header>
+  <ol class="sources">
+    <li><a href="https://www.openssh.com/releasenotes.html">OpenSSH release notes</a>, versions 8.0 through 10.5 (dates, defaults, removals, the 10.4 composite signature, the 10.1 warning)</li>
+    <li><a href="https://www.openssh.com/pq.html">OpenSSH: Post-Quantum Cryptography</a> (store-now-decrypt-later, warning text, why signatures can wait, quantum timeline estimates)</li>
+    <li><a href="https://www.rfc-editor.org/rfc/rfc10042">RFC 10042</a>, ML-KEM hybrid key exchange for SSH (message sizes, K = SHA-256(K_PQ ‖ K_CL))</li>
+    <li><a href="https://datatracker.ietf.org/doc/html/draft-miller-sshm-composite-sigs-01">draft-miller-sshm-composite-sigs-01</a> and <a href="https://datatracker.ietf.org/doc/draft-miller-sshm-mldsa44-ed25519-composite-sigs/">-mldsa44-ed25519-composite-sigs-00</a> (composite key and signature sizes)</li>
+    <li><a href="https://www.rfc-editor.org/rfc/rfc4253">RFC 4253</a> (transport, key exchange, exchange hash) and <a href="https://www.rfc-editor.org/rfc/rfc4252">RFC 4252</a> (public key user authentication)</li>
+    <li><a href="https://csrc.nist.gov/pubs/sp/800/57/pt1/r5/final">NIST SP 800-57 Part 1 Rev. 5</a> (security strength vs. key size)</li>
+    <li><a href="https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8547.ipd.pdf">NIST IR 8547 (initial public draft)</a> (2030 deprecation, 2035 disallowance)</li>
+    <li><a href="https://csrc.nist.gov/pubs/fips/203/final">FIPS 203</a>, <a href="https://csrc.nist.gov/pubs/fips/204/final">FIPS 204</a>, <a href="https://csrc.nist.gov/pubs/fips/205/final">FIPS 205</a>; FN-DSA status via <a href="https://www.digicert.com/blog/quantum-ready-fndsa-nears-draft-approval-from-nist">DigiCert</a></li>
+    <li><a href="https://nvd.nist.gov/vuln/detail/cve-2024-31497">CVE-2024-31497</a> (PuTTY P-521 nonce bias)</li>
+    <li><a href="https://www.juniper.net/documentation/us/en/software/junos/user-access/topics/topic-map/junos-os-user-accounts.html">Junos OS user accounts</a> and <a href="https://www.juniper.net/documentation/us/en/software/ccfips23.4/cc-nfx/topics/task/configuring-ndpp-admin.html">Junos FIPS admin config</a> (ssh-ed25519 support, FIPS restriction)</li>
+    <li>Measured locally for this page: <code>ssh-keygen</code> (OpenSSH 9.6p1) for the sample keys, fingerprints and randomart; <code>openssl speed</code> (OpenSSL 3.0.13) for the speed chart.</li>
+  </ol>
+  <footer class="colophon">All sample keys on this page were generated for it and have no access to anything. The hostnames, IPs and usernames in the transcript are illustrative.</footer>
+</section>
+
+</main>
+</div>
+</div>
+<script>
+(function(){
+'use strict';
+
+/* ================= helpers ================= */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const reduced=()=>window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const fmt=n=>Number(n).toLocaleString('en-US');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const SVGNS='http://www.w3.org/2000/svg';
+function sv(tag,attrs,parent){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e}
+const redraws=[];
+function onRedraw(f){redraws.push(f)}
+function redrawAll(){redraws.forEach(f=>{try{f()}catch(e){console.error(e)}})}
+try{window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',redrawAll)}catch(e){}
+new MutationObserver(redrawAll).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+let resizeT,lastW=window.innerWidth;
+window.addEventListener('resize',()=>{clearTimeout(resizeT);resizeT=setTimeout(()=>{if(Math.abs(window.innerWidth-lastW)>2){lastW=window.innerWidth;redrawAll()}},140)});
+const yyyymm=(()=>{const d=new Date();return String(d.getFullYear())+String(d.getMonth()+1).padStart(2,'0')})();
+
+/* ================= tooltip ================= */
+const tip=$('#tip');
+function tipShow(ev,title,rows){
+  tip.textContent='';
+  if(title){const t=document.createElement('div');t.textContent=title;t.style.cssText='font-size:.74rem;color:var(--muted);margin-bottom:4px';tip.appendChild(t)}
+  rows.forEach(r=>{const d=document.createElement('div');d.className='row';const k=document.createElement('span');k.className='key';k.style.background=r.color;const b=document.createElement('b');b.textContent=r.value;const l=document.createElement('span');l.textContent=r.label;d.append(k,b,l);tip.appendChild(d)});
+  tip.hidden=false;tipMove(ev);
+}
+function tipMove(ev){
+  let x,y;
+  if(ev&&ev.clientX!=null&&ev.type!=='focus'){x=ev.clientX;y=ev.clientY}else{const r=ev.currentTarget.getBoundingClientRect();x=r.left+r.width/2;y=r.top}
+  const w=tip.offsetWidth,h=tip.offsetHeight;let L=x+14,T=y-h-12;
+  if(L+w>window.innerWidth-8)L=x-w-14;if(T<8)T=y+18;
+  tip.style.left=Math.max(8,L)+'px';tip.style.top=T+'px';
+}
+function tipHide(){tip.hidden=true}
+
+/* ================= copy buttons ================= */
+$$('.code[data-copy]').forEach(box=>{
+  const pre=$('pre',box);const b=document.createElement('button');b.type='button';b.className='copy';b.textContent='copy';
+  b.addEventListener('click',()=>{
+    const text=pre.innerText;
+    const done=()=>{b.textContent='copied';setTimeout(()=>b.textContent='copy',1400)};
+    const fail=()=>{const r=document.createRange();r.selectNodeContents(pre);const s=window.getSelection();s.removeAllRanges();s.addRange(r);b.textContent='selected, press Ctrl/⌘+C';setTimeout(()=>b.textContent='copy',2400)};
+    try{navigator.clipboard.writeText(text).then(done,fail)}catch(e){fail()}
+  });
+  box.appendChild(b);
+});
+
+/* ================= rail highlight ================= */
+(function(){
+  const links=$$('#railList a');const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  if(!('IntersectionObserver' in window))return;
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){links.forEach(a=>a.removeAttribute('aria-current'));const a=map.get(e.target.id);if(a)a.setAttribute('aria-current','true')}})},{rootMargin:'-30% 0px -65% 0px'});
+  $$('section.chapter').forEach(s=>io.observe(s));
+})();
+
+/* ================= number helpers ================= */
+function isPrimeN(n){if(n<2)return false;if(n%2===0)return n===2;if(n%3===0)return n===3;for(let i=5;i*i<=n;i+=6){if(n%i===0||n%(i+2)===0)return false}return true}
+function mpow(b,e,m){let r=1;b%=m;while(e>0){if(e%2===1)r=(r*b)%m;b=(b*b)%m;e=Math.floor(e/2)}return r} // safe for m < 2^26
+function gcd(a,b){while(b){[a,b]=[b,a%b]}return a}
+function modinv(a,m){let or=a,r=m,os=1,s=0;while(r){const q=Math.floor(or/r);[or,r]=[r,or-q*r];[os,s]=[s,os-q*s]}return((os%m)+m)%m}
+
+/* ================= 02 · factor race ================= */
+(function(){
+  const bitsEl=$('#fBits'),out=$('#fBitsOut'),go=$('#fGo'),stop=$('#fStop'),svg=$('#fChart');
+  const runs=[];let running=false,cancel=false;
+  bitsEl.addEventListener('input',()=>{out.textContent=bitsEl.value});
+  function randPrime(b){const lo=2**(b-1),hi=2**b;for(;;){let n=lo+Math.floor(Math.random()*(hi-lo));if(n%2===0)n++;if(n>=hi)continue;if(isPrimeN(n))return n}}
+  function pick(B){const hb=B/2;let p=randPrime(hb),q=randPrime(hb);while(q===p)q=randPrime(hb);if(p>q)[p,q]=[q,p];return{p,q,n:p*q}}
+  function bitlen(n){return Math.floor(Math.log2(n))+1}
+  function show(r,partial){
+    $('#fPQ').textContent=fmt(r.p)+' × '+fmt(r.q);
+    $('#fN').textContent=fmt(r.n);
+    $('#fMul').textContent='< 1 µs';
+    $('#fSteps').textContent=r.steps==null?'…':fmt(r.steps)+(partial?'…':'');
+    $('#fTime').textContent=r.ms==null?'…':(r.ms<1?'< 1 ms':fmt(Math.round(r.ms))+' ms')+(partial?'…':'');
+  }
+  function syncFactor(r){let d=3,steps=0;const lim=Math.floor(Math.sqrt(r.n));const t0=performance.now();for(;d<=lim;d+=2){steps++;if(r.n%d===0)break}r.steps=steps;r.ms=performance.now()-t0;r.bits=bitlen(r.n);return r}
+  // seed with real runs so the chart is populated at rest
+  [20,24,28,32,36].forEach(B=>runs.push(syncFactor(pick(B))));
+  show(runs[runs.length-1]);
+  go.addEventListener('click',()=>{
+    if(running)return;
+    const r=pick(+bitsEl.value);r.steps=null;r.ms=null;show(r);
+    running=true;cancel=false;go.disabled=true;stop.disabled=false;
+    let d=3,steps=0;const lim=Math.floor(Math.sqrt(r.n));const t0=performance.now();
+    const finish=ok=>{running=false;go.disabled=false;stop.disabled=true;r.steps=steps;r.ms=performance.now()-t0;r.bits=bitlen(r.n);show(r,!ok);if(ok){runs.push(r);if(runs.length>40)runs.shift();draw()}};
+    (function chunk(){
+      const end=Math.min(lim,d+2*1500000);
+      for(;d<=end;d+=2){steps++;if(r.n%d===0){finish(true);return}}
+      if(d>lim){finish(true);return}
+      if(cancel){finish(false);return}
+      r.steps=steps;r.ms=performance.now()-t0;show(r,true);
+      setTimeout(chunk,0);
+    })();
+  });
+  stop.addEventListener('click',()=>{cancel=true});
+  function draw(){
+    const W=Math.max(300,Math.round(svg.parentElement.clientWidth-36)),H=250,m={l:48,r:14,t:14,b:36};svg.textContent='';
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);svg.setAttribute('height',H);
+    const x=b=>m.l+(b-18)/(54-18)*(W-m.l-m.r),y=v=>H-m.b-(v/28)*(H-m.t-m.b);
+    const grid=css('--grid'),muted=css('--muted');
+    for(let v=0;v<=28;v+=4){sv('line',{x1:m.l,x2:W-m.r,y1:y(v),y2:y(v),stroke:grid,'stroke-width':1},svg);const t=sv('text',{x:m.l-8,y:y(v)+4,'text-anchor':'end'},svg);t.textContent='2^'+v}
+    for(let b=20;b<=52;b+=8){const t=sv('text',{x:x(b),y:H-m.b+18,'text-anchor':'middle'},svg);t.textContent=b+' bit'}
+    const ax=sv('text',{x:W-m.r,y:H-4,'text-anchor':'end'},svg);ax.textContent='size of n';
+    // expected line: steps ≈ p/2, p ≈ 2^(B/2 - 0.5)  →  log2 ≈ B/2 - 1.5
+    sv('line',{x1:x(20),y1:y(20/2-1.5),x2:x(54),y2:y(54/2-1.5),stroke:muted,'stroke-width':1.5,'stroke-dasharray':'5 4'},svg);
+    const lt=sv('text',{x:x(47),y:y(47/2-1.5)-10,'text-anchor':'end',fill:muted},svg);lt.textContent='≈ √n / 2';
+    const rose=css('--mark-rose'),bg=css('--chart-bg');
+    runs.forEach((r,i)=>{
+      const v=Math.log2(Math.max(1,r.steps));const g=sv('g',{class:'hit',tabindex:'0'},svg);
+      sv('circle',{cx:x(r.bits),cy:y(v),r:12,fill:'transparent'},g);
+      sv('circle',{cx:x(r.bits),cy:y(v),r:i===runs.length-1?6:4.5,fill:rose,stroke:bg,'stroke-width':2},g);
+      const rows=[{color:rose,value:fmt(r.steps)+' divisions',label:'≈ 2^'+v.toFixed(1)}];
+      const title=r.bits+'-bit n · '+(r.ms<1?'< 1 ms':fmt(Math.round(r.ms))+' ms');
+      g.addEventListener('pointerenter',e=>tipShow(e,title,rows));g.addEventListener('pointermove',tipMove);g.addEventListener('pointerleave',tipHide);
+      g.addEventListener('focus',e=>tipShow(e,title,rows));g.addEventListener('blur',tipHide);
+    });
+  }
+  draw();onRedraw(draw);
+})();
+
+/* ================= 02 · toy RSA ================= */
+(function(){
+  const SP=[11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97,101,103,107,109,113,127,131,137,139,149,151,157,163,167,173,179,181,191,193,197,199,211,223,227,229,233,239,241,251];
+  const selP=$('#rP'),selQ=$('#rQ');
+  SP.forEach(p=>{selP.add(new Option(p,p));selQ.add(new Option(p,p))});selP.value='61';selQ.value='53';
+  const msg=$('#rMsg'),msgIn=$('#rMsgIn'),sigIn=$('#rSigIn');
+  let K={};
+  function fnv(str){let h=0x811c9dc5;for(const b of new TextEncoder().encode(str)){h^=b;h=Math.imul(h,0x01000193)>>>0}return h}
+  function keygen(){
+    let p=+selP.value,q=+selQ.value,note='';
+    if(p===q){q=SP[(SP.indexOf(q)+1)%SP.length];selQ.value=String(q);note=' (p and q must differ, so q moved up one)'}
+    const n=p*q,phi=(p-1)*(q-1);
+    const e=[3,5,17,257,65537].find(c=>gcd(c,phi)===1);
+    const d=modinv(e%phi,phi);
+    K={p,q,n,phi,e,d};
+    $('#rKeygen').innerHTML=
+      `<div><i>1</i><span>n = p · q = ${p} × ${q} = <b class="t-pub">${fmt(n)}</b>${esc(note)}</span></div>`+
+      `<div><i>2</i><span>φ(n) = (p−1)(q−1) = <b class="t-priv">${fmt(phi)}</b> <span class="muted">secret: needs the primes</span></span></div>`+
+      `<div><i>3</i><span>e = <b class="t-pub">${e}</b> <span class="muted">smallest of 3, 5, 17, 257, 65537 with gcd(e, φ) = 1</span></span></div>`+
+      `<div><i>4</i><span>d = e⁻¹ mod φ = <b class="t-priv">${fmt(d)}</b> <span class="muted">check: ${e} × ${fmt(d)} mod ${fmt(phi)} = ${(e%phi)*d%phi}</span></span></div>`+
+      `<div><i>→</i><span>public key <span class="k k-pub">(n=${fmt(n)}, e=${e})</span> · private key <span class="k k-priv">d=${fmt(d)}</span></span></div>`;
+  }
+  function sign(){
+    const h=fnv(msg.value)%K.n;const s=mpow(h,K.d,K.n);K.h=h;K.s=s;
+    $('#rSign').innerHTML=
+      `<div><i>1</i><span>h = FNV-1a(message) mod n = <b>${fmt(h)}</b></span></div>`+
+      `<div><i>2</i><span>s = h<sup>d</sup> mod n = ${fmt(h)}<sup>${fmt(K.d)}</sup> mod ${fmt(K.n)} = <b class="t-priv">${fmt(s)}</b></span></div>`+
+      `<div><i>→</i><span>sends message + signature <b>${fmt(s)}</b></span></div>`;
+  }
+  function verify(){
+    const m=msgIn.value,s=Number(sigIn.value);
+    const h=fnv(m)%K.n;const valid=Number.isInteger(s)&&s>=0&&s<K.n;
+    const back=valid?mpow(s,K.e,K.n):NaN;
+    $('#rVerify').innerHTML=
+      `<div><i>1</i><span>h' = FNV-1a(received) mod n = <b>${fmt(h)}</b></span></div>`+
+      `<div><i>2</i><span>s<sup>e</sup> mod n = ${valid?fmt(s):'?'}<sup>${K.e}</sup> mod ${fmt(K.n)} = <b class="t-pub">${valid?fmt(back):'invalid'}</b></span></div>`;
+    const ok=valid&&back===h;const v=$('#rVerdict');
+    v.className='verdict-box '+(ok?'good':'bad');
+    v.textContent=ok?'✓ Signature valid: made by the holder of d, message unchanged':(valid?'✗ Signature invalid: message altered or signature forged':'✗ Signature must be a whole number between 0 and n − 1');
+  }
+  function resetRecv(){msgIn.value=msg.value;sigIn.value=String(K.s);verify()}
+  function all(){keygen();sign();resetRecv()}
+  selP.addEventListener('change',all);selQ.addEventListener('change',all);
+  msg.addEventListener('input',()=>{sign();resetRecv()});
+  msgIn.addEventListener('input',verify);sigIn.addEventListener('input',verify);
+  $('#rReset').addEventListener('click',resetRecv);
+  all();
+  $('#bigN').textContent='4245743309133258264129418642609135253896818328169443248252342056908952729010567368758218733956757401463719159974622281844434788017707768000720707862838914853926418049736093848290651937018553398686508049117155698719451149849096815599325869810649913962941553785286733069040617052108620209271233612045373497826961101806932233187233879389128003574858898025011520489493520627447981040922138493003101138069734219508683658393700154089138618697012719848618734133998812785017577452839493924521689932436826713286149418004612006451398812506013620219587302117359815434155119659521283488683734432893226897823542212963307702898916213071919418616779862116545566617564919212102289916047006305432744458287148097024609683736849713437999102117440437893860013224155880620434232103612624849131024734126883282689924327606212024262649624548154719839098059015451649137766669224152298802934008124862346718683547154223463196908513706271719453003837089591';
+})();
+
+/* ================= 03 · real curve ================= */
+(function(){
+  const cv=$('#ecCanvas'),read=$('#ecRead'),Px=$('#ecPx'),Qx=$('#ecQx'),Qneg=$('#ecQneg'),bAdd=$('#ecAdd'),bDbl=$('#ecDbl'),Qwrap=$('#ecQwrap');
+  const A=-1,B=1,f=x=>x*x*x+A*x+B;
+  let root=-1.3;for(let i=0;i<30;i++)root-=f(root)/(3*root*root+A);
+  let mode='add';
+  function setMode(m){mode=m;bAdd.setAttribute('aria-pressed',m==='add');bDbl.setAttribute('aria-pressed',m==='dbl');Qwrap.style.opacity=m==='dbl'?.4:1;Qx.disabled=m==='dbl';Qneg.disabled=m==='dbl';draw()}
+  bAdd.addEventListener('click',()=>setMode('add'));bDbl.addEventListener('click',()=>setMode('dbl'));
+  [Px,Qx,Qneg].forEach(el=>el.addEventListener('input',draw));
+  const f2=v=>(Math.abs(v)<0.005?0:v).toFixed(2);
+  function draw(){
+    const dpr=window.devicePixelRatio||1,w=cv.parentElement.clientWidth,h=Math.round(Math.min(430,Math.max(300,w*0.6)));
+    cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);cv.style.width=w+'px';cv.style.height=h+'px';
+    const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
+    const xmin=-2.2,xmax=3.1,ymin=-5.8,ymax=5.8,pad=22;
+    const X=x=>pad+(x-xmin)/(xmax-xmin)*(w-2*pad),Y=y=>pad+(ymax-y)/(ymax-ymin)*(h-2*pad);
+    const grid=css('--grid'),ink2=css('--ink-2'),muted=css('--muted'),cyan=css('--cyan'),amber=css('--amber'),lav=css('--lav'),bg=css('--chart-bg'),ink=css('--ink');
+    c.lineWidth=1;c.strokeStyle=grid;
+    for(let gx=-2;gx<=3;gx++){c.beginPath();c.moveTo(X(gx),pad);c.lineTo(X(gx),h-pad);c.stroke()}
+    for(let gy=-5;gy<=5;gy++){c.beginPath();c.moveTo(pad,Y(gy));c.lineTo(w-pad,Y(gy));c.stroke()}
+    c.strokeStyle=muted;c.beginPath();c.moveTo(pad,Y(0));c.lineTo(w-pad,Y(0));c.moveTo(X(0),pad);c.lineTo(X(0),h-pad);c.stroke();
+    // curve
+    const pts=[];for(let i=0;i<=240;i++){const t=i/240;const x=root+(xmax-root)*t*t;pts.push([x,Math.sqrt(Math.max(0,f(x)))])}
+    c.strokeStyle=ink2;c.lineWidth=2;c.beginPath();
+    for(let i=pts.length-1;i>=0;i--){const [x,y]=pts[i];const py=Y(-y);i===pts.length-1?c.moveTo(X(x),py):c.lineTo(X(x),py)}
+    for(let i=0;i<pts.length;i++){const [x,y]=pts[i];c.lineTo(X(x),Y(y))}
+    c.stroke();
+    // points
+    const x1=+Px.value,y1=Math.sqrt(Math.max(0,f(x1)));
+    let x2,y2;if(mode==='dbl'){x2=x1;y2=y1}else{x2=+Qx.value;y2=(Qneg.checked?-1:1)*Math.sqrt(Math.max(0,f(x2)))}
+    let m=null,inf=false,dbl=mode==='dbl';
+    if(dbl||(Math.abs(x2-x1)<1e-9&&Math.abs(y2-y1)<1e-9)){dbl=true;if(Math.abs(y1)<1e-6)inf=true;else m=(3*x1*x1+A)/(2*y1)}
+    else if(Math.abs(x2-x1)<1e-9){inf=true}
+    else m=(y2-y1)/(x2-x1);
+    const dot=(x,y,r,fill,label,dx,dy,ring=true)=>{c.beginPath();c.arc(X(x),Y(y),r,0,Math.PI*2);c.fillStyle=fill;c.fill();if(ring){c.lineWidth=2;c.strokeStyle=bg;c.stroke()}if(label){c.fillStyle=ink;c.font='600 13px '+css('--f-mono');c.fillText(label,X(x)+dx,Y(y)+dy)}};
+    let txt='';
+    if(inf){
+      c.strokeStyle=muted;c.lineWidth=1.5;c.setLineDash([6,5]);c.beginPath();c.moveTo(X(x1),pad);c.lineTo(X(x1),h-pad);c.stroke();c.setLineDash([]);
+      dot(x1,y1,6,cyan,'P',9,-8);if(!dbl)dot(x2,y2,6,cyan,'Q',9,16);
+      txt=`P = (${f2(x1)}, ${f2(y1)})${dbl?'':`   Q = (${f2(x2)}, ${f2(y2)})`}\nThe line is vertical, so it never meets the curve a third time.\nP + ${dbl?'P':'Q'} = O, the "point at infinity", which acts as zero in this arithmetic.`;
+    }else{
+      const x3=m*m-x1-x2,yl=y1+m*(x3-x1),y3=-yl;
+      // line across view
+      c.strokeStyle=muted;c.lineWidth=1.5;c.beginPath();c.moveTo(X(xmin),Y(y1+m*(xmin-x1)));c.lineTo(X(xmax),Y(y1+m*(xmax-x1)));c.stroke();
+      const inView=(x,y)=>x>=xmin&&x<=xmax&&y>=ymin&&y<=ymax;
+      if(inView(x3,yl)&&inView(x3,y3)){
+        c.setLineDash([5,5]);c.strokeStyle=lav;c.beginPath();c.moveTo(X(x3),Y(yl));c.lineTo(X(x3),Y(y3));c.stroke();c.setLineDash([]);
+        c.beginPath();c.arc(X(x3),Y(yl),5,0,Math.PI*2);c.lineWidth=2;c.strokeStyle=lav;c.stroke();
+        c.fillStyle=muted;c.font='500 12px '+css('--f-mono');c.fillText('third hit',X(x3)+9,Y(yl)+(yl>0?-8:16));
+        dot(x3,y3,7,amber,dbl?'2P':'P+Q',10,y3>0?-10:18);
+      }
+      dot(x1,y1,6,cyan,'P',-18,-8);if(!dbl)dot(x2,y2,6,cyan,'Q',9,y2>0?-8:18);
+      const off=inView(x3,y3)?'':'   (off the chart: slide the points closer)';
+      txt=`P = (${f2(x1)}, ${f2(y1)})${dbl?'':`   Q = (${f2(x2)}, ${f2(y2)})`}\n${dbl?'tangent slope':'slope'} m = ${dbl?'(3x² + a) / 2y':'(y₂ − y₁) / (x₂ − x₁)'} = ${f2(m)}\n${dbl?'2P':'P + Q'} = (m² − x₁ − x₂, −(y₁ + m(x₃ − x₁))) = (${f2(x3)}, ${f2(y3)})${off}`;
+    }
+    read.textContent=txt;read.style.whiteSpace='pre';
+  }
+  draw();onRedraw(draw);
+})();
+
+/* ================= 03 · finite field ================= */
+(function(){
+  const P=101,A=P-3,B=6;
+  const cv=$('#ffCanvas'),kEl=$('#ffK'),kOut=$('#ffKout'),read=$('#ffRead'),chal=$('#ffChal'),bNew=$('#ffNew'),bBrute=$('#ffBrute');
+  const inv=a=>mpow(((a%P)+P)%P,P-2,P);
+  const md=a=>((a%P)+P)%P;
+  const pts=[];for(let x=0;x<P;x++){const r=md(x*x*x+A*x+B);for(let y=0;y<P;y++)if((y*y)%P===r)pts.push([x,y])}
+  function add(p1,p2){if(!p1)return p2;if(!p2)return p1;const[x1,y1]=p1,[x2,y2]=p2;if(x1===x2&&md(y1+y2)===0)return null;let m;
+    if(x1===x2&&y1===y2)m=md((3*x1*x1+A)*inv(2*y1));else m=md(md(y2-y1)*inv(md(x2-x1)));
+    const x3=md(m*m-x1-x2);const y3=md(m*(x1-x3)-y1);return[x3,y3]}
+  const G=pts.find(p=>p[0]>=2&&p[1]<P/2)||pts[0];
+  const mult=[null,G];for(let k=2;k<=110;k++)mult[k]=add(mult[k-1],G);
+  const ORDER=mult.indexOf(null,1); // 109
+  kEl.max=String(ORDER-1);
+  let secret=null,cursor=null,timer=null,tries=0;
+  function dblAdd(k){const b=k.toString(2);return{d:b.length-1,a:(b.match(/1/g)||[]).length-1,bin:b}}
+  function draw(){
+    const dpr=window.devicePixelRatio||1,w=Math.min(cv.parentElement.clientWidth,470),h=w;
+    cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);cv.style.width=w+'px';cv.style.height=h+'px';
+    const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
+    const pad=26,S=(w-2*pad)/(P-1);const X=x=>pad+x*S,Y=y=>h-pad-y*S;
+    const grid=css('--grid'),muted=css('--muted'),cyan=css('--cyan'),rose=css('--rose'),bg=css('--chart-bg'),ink=css('--ink'),ink2=css('--ink-2');
+    c.strokeStyle=grid;c.lineWidth=1;for(let g=0;g<=100;g+=20){c.beginPath();c.moveTo(X(g),Y(0));c.lineTo(X(g),Y(100));c.stroke();c.beginPath();c.moveTo(X(0),Y(g));c.lineTo(X(100),Y(g));c.stroke()}
+    c.fillStyle=muted;c.font='10px '+css('--f-mono');for(let g=0;g<=100;g+=20){c.fillText(String(g),X(g)-6,h-pad+15);if(g)c.fillText(String(g),2,Y(g)+3)}
+    c.fillStyle=ink2;pts.forEach(([x,y])=>{c.beginPath();c.arc(X(x),Y(y),2.2,0,Math.PI*2);c.fill()});
+    const k=+kEl.value;
+    // hop trail
+    const trail=Math.min(k-1,7);
+    for(let j=k-trail;j<k;j++){const a=mult[j],b=mult[j+1];if(!a||!b)continue;c.strokeStyle=cyan;c.globalAlpha=.18+.7*((j-(k-trail))/Math.max(1,trail));c.lineWidth=1.6;c.beginPath();c.moveTo(X(a[0]),Y(a[1]));c.lineTo(X(b[0]),Y(b[1]));c.stroke()}
+    c.globalAlpha=1;
+    const ring=(pt,r,fill,stroke)=>{c.beginPath();c.arc(X(pt[0]),Y(pt[1]),r,0,Math.PI*2);if(fill){c.fillStyle=fill;c.fill()}c.lineWidth=2;c.strokeStyle=stroke||bg;c.stroke()};
+    ring(G,4.5,ink);c.fillStyle=ink;c.font='600 12px '+css('--f-mono');c.fillText('G',X(G[0])+7,Y(G[1])-6);
+    if(secret){const q=mult[secret];ring(q,11,null,cyan);c.fillStyle=cyan;c.fillText('Q',X(q[0])+13,Y(q[1])+4)}
+    const cur=mult[k];if(cur){ring(cur,7,cyan);c.fillStyle=cyan;c.fillText(k+'G',X(cur[0])+10,Y(cur[1])-9)}
+    if(cursor){const e=mult[cursor];ring(e,6,rose)}
+    const da=dblAdd(k);
+    read.innerHTML=`<b class="t-priv">k = ${k}</b> <span class="muted">(binary ${da.bin})</span><br><b class="t-pub">k·G = (${cur?cur[0]:'∞'}, ${cur?cur[1]:'∞'})</b><br>double-and-add: ${da.d} doubling${da.d===1?'':'s'} + ${da.a} addition${da.a===1?'':'s'}<br><span class="muted">G = (${G[0]}, ${G[1]}) · ${ORDER} points in the group</span>`;
+    kOut.textContent=String(k);
+  }
+  kEl.addEventListener('input',draw);
+  function stopBrute(){if(timer){clearInterval(timer);timer=null}bBrute.disabled=false;bNew.disabled=false}
+  bNew.addEventListener('click',()=>{stopBrute();secret=2+Math.floor(Math.random()*(ORDER-3));cursor=null;tries=0;const q=mult[secret];chal.innerHTML=`Secret hidden. Public point <b class="t-pub">Q = (${q[0]}, ${q[1]})</b>. Find k such that k·G = Q.`;draw()});
+  bBrute.addEventListener('click',()=>{
+    if(!secret){bNew.click()}
+    stopBrute();bBrute.disabled=true;bNew.disabled=true;tries=0;let i=0;const q=mult[secret];
+    const step=()=>{i++;tries++;cursor=i;const hit=mult[i]&&mult[i][0]===q[0]&&mult[i][1]===q[1];
+      chal.innerHTML=`Eve tries <b class="t-adv">${i}·G = (${mult[i][0]}, ${mult[i][1]})</b> ${hit?'<b class="ok-text">match!</b>':'no match'}<br><span class="muted">${tries} tr${tries===1?'y':'ies'} so far · target Q = (${q[0]}, ${q[1]})</span>`;
+      if(hit){stopBrute();kEl.value=String(i);chal.innerHTML+=`<br>Found <b class="t-priv">k = ${i}</b> after ${tries} tries. On Curve25519 the same loop is hopeless.`;}
+      draw();return hit};
+    if(reduced()){while(!step()){}return}
+    timer=setInterval(step,45);
+  });
+  draw();onRedraw(draw);
+})();
+
+/* ================= 04 · paint ================= */
+(function(){
+  const aEl=$('#pA'),bEl=$('#pB'),out=$('#paintOut');
+  const toLin=c=>{c/=255;return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4)};
+  const fromLin=c=>Math.round(255*(c<=.0031308?12.92*c:1.055*Math.pow(c,1/2.4)-.055));
+  function hsl(h,s,l){s/=100;l/=100;const k=n=>(n+h/30)%12,a=s*Math.min(l,1-l),f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return[255*f(0),255*f(8),255*f(4)].map(Math.round)}
+  const mix=parts=>{const tot=parts.reduce((s,p)=>s+p[1],0);return[0,1,2].map(i=>fromLin(parts.reduce((s,[c,w])=>s+toLin(c[i])*w,0)/tot))};
+  const rgb=c=>`rgb(${c[0]},${c[1]},${c[2]})`;
+  const common=[227,192,75];
+  const sw=(c,cap,lg)=>`<span class="sw-cap"><span class="sw${lg?' lg':''}" style="background:${rgb(c)}"></span>${esc(cap)}</span>`;
+  function draw(){
+    const A=hsl(+aEl.value,70,48),B=hsl(+bEl.value,70,48);
+    const mA=mix([[A,1],[common,1]]),mB=mix([[B,1],[common,1]]);
+    const fA=mix([[mB,2],[A,1]]),fB=mix([[mA,2],[B,1]]);
+    const eve=mix([[mA,1],[mB,1]]);
+    out.innerHTML=
+      `<div class="paint-row"><span class="who">Public</span><div class="eq">${sw(common,'common paint')}<span>everyone knows this</span></div></div>`+
+      `<div class="paint-row"><span class="who t-priv">Alice</span><div class="eq">${sw(A,'secret')}<span>+</span>${sw(common,'common')}<span>=</span>${sw(mA,'sends →')}</div></div>`+
+      `<div class="paint-row"><span class="who t-priv">Bob</span><div class="eq">${sw(B,'secret')}<span>+</span>${sw(common,'common')}<span>=</span>${sw(mB,'sends →')}</div></div>`+
+      `<div class="paint-row"><span class="who t-adv">Eve sees</span><div class="eq">${sw(common,'common')}${sw(mA,"Alice's mix")}${sw(mB,"Bob's mix")}<span>→ best guess</span>${sw(eve,'wrong',true)}</div></div>`+
+      `<div class="paint-row"><span class="who t-sess">Alice</span><div class="eq">${sw(mB,"Bob's mix")}<span>+</span>${sw(A,'her secret')}<span>=</span>${sw(fA,'shared',true)}</div></div>`+
+      `<div class="paint-row"><span class="who t-sess">Bob</span><div class="eq">${sw(mA,"Alice's mix")}<span>+</span>${sw(B,'his secret')}<span>=</span>${sw(fB,'shared',true)}</div></div>`+
+      `<p class="small muted">Alice and Bob both end up with one part each of common, Alice's and Bob's paint. Eve's mix of the two public mixtures has <em>two</em> parts common paint in it, so it comes out wrong, and she has no way to pull the common paint back out.</p>`;
+  }
+  aEl.addEventListener('input',draw);bEl.addEventListener('input',draw);draw();
+})();
+
+/* ================= 04 · DH numbers ================= */
+(function(){
+  const selP=$('#dP'),aEl=$('#dA'),bEl=$('#dB'),out=$('#dOut'),eve=$('#dEve');
+  function draw(){
+    const [p,g]=selP.value.split(',').map(Number);
+    let a=Math.round(+aEl.value||2),b=Math.round(+bEl.value||2);
+    a=Math.min(Math.max(a,2),p-2);b=Math.min(Math.max(b,2),p-2);
+    aEl.max=bEl.max=String(p-2);
+    const A=mpow(g,a,p),Bv=mpow(g,b,p),sA=mpow(Bv,a,p),sB=mpow(A,b,p);
+    out.innerHTML=
+      `<div class="party"><h4>Alice <span class="k k-priv">a = ${fmt(a)}</span></h4><div class="steps-mini"><div><i>1</i><span>A = g<sup>a</sup> mod p = ${g}<sup>${fmt(a)}</sup> mod ${fmt(p)} = <b class="t-pub">${fmt(A)}</b></span></div><div><i>2</i><span>receives B = ${fmt(Bv)}</span></div><div><i>3</i><span>B<sup>a</sup> mod p = <b class="t-sess">${fmt(sA)}</b></span></div></div></div>`+
+      `<div class="party"><h4>Bob <span class="k k-priv">b = ${fmt(b)}</span></h4><div class="steps-mini"><div><i>1</i><span>B = g<sup>b</sup> mod p = ${g}<sup>${fmt(b)}</sup> mod ${fmt(p)} = <b class="t-pub">${fmt(Bv)}</b></span></div><div><i>2</i><span>receives A = ${fmt(A)}</span></div><div><i>3</i><span>A<sup>b</sup> mod p = <b class="t-sess">${fmt(sB)}</b></span></div></div></div>`;
+    let x=0,cur=1;do{x++;cur=(cur*g)%p}while(cur!==A&&x<p);
+    eve.innerHTML=`<b class="t-adv">Eve</b> sees p = ${fmt(p)}, g = ${g}, A = ${fmt(A)}, B = ${fmt(Bv)}. Shared secret: <b class="t-sess">${sA===sB?fmt(sA)+' on both sides ✓':'mismatch'}</b><br>`+
+      `Brute force: try g<sup>1</sup>, g<sup>2</sup>, g<sup>3</sup>… until one equals A. <b class="t-adv">Found a = ${fmt(x)} after ${fmt(x)} tries.</b><br>`+
+      `<span class="muted">The finite-field groups SSH still supports start at 2,048 bits (group14). Trial exponentiation there is hopeless, and the best known attack costs about 2<sup>112</sup> operations.</span>`;
+  }
+  [selP,aEl,bEl].forEach(e=>e.addEventListener('input',draw));draw();
+})();
+
+/* ================= 05 · handshake ================= */
+const HS=(function(){
+  const C0=[{id:'cpriv',t:'id_ed25519',s:'your private key',k:'priv'},{id:'cpub',t:'id_ed25519.pub',k:'pub'},{id:'ckh',t:'known_hosts: srv01 ssh-ed25519',s:"what srv01's host key should be",k:'pub'}];
+  const S0=[{id:'spriv',t:'ssh_host_ed25519_key',s:'host private key',k:'priv'},{id:'spub',t:'ssh_host_ed25519_key.pub',k:'pub'},{id:'sak',t:'~alice/.ssh/authorized_keys',s:'contains your id_ed25519.pub',k:'pub'}];
+  const agreed={t:'agreed: mlkem768x25519-sha256 · ssh-ed25519 · chacha20-poly1305',k:'plain'};
+  const NORMAL=[
+    {title:'Before you hit enter',msg:null,add:{client:C0,server:S0},
+      body:`<p>Each side starts with one long-term key pair plus a copy of the other side's public key. Your <code>known_hosts</code> line is how your laptop will recognize srv01. The server's <code>authorized_keys</code> line is how srv01 will recognize you.</p><p>Notice the symmetry: <strong>both sides prove identity the same way, with a signature</strong>. The server goes first.</p>`,
+      debug:'debug1: Connecting to srv01 [192.0.2.10] port 22.'},
+    {title:'Banners',msg:{t:'SSH-2.0-OpenSSH_10.2',dir:'both'},add:{wire:[{t:'2 version banners',s:'SSH-2.0-OpenSSH_10.2, both ways',k:'plain'}]},
+      body:`<p>TCP connects and each side sends a plain-text identification line. That's all scanners like nmap and ssh-audit need to guess your server's version, which is one more reason to keep it patched.</p>`,
+      debug:'debug1: Remote protocol version 2.0, remote software version OpenSSH_10.2'},
+    {title:'KEXINIT: negotiate everything',msg:{t:'SSH2_MSG_KEXINIT',dir:'both'},add:{wire:[{t:'both algorithm lists',s:'plus a random 16-byte cookie each',k:'plain'}],client:[agreed],server:[agreed]},
+      body:`<p>Each side sends its preference list for every slot: key exchange, host key type, cipher, MAC and compression. <strong>For each slot, the winner is the first algorithm on the client's list that the server also supports.</strong> The client's order decides; the server only gets a veto.</p><p>Hidden in the lists is <code>kex-strict-c-v00@openssh.com</code> (and <code>-s-</code> from the server), the Terrapin countermeasure from OpenSSH 9.6. It isn't a real algorithm. It's a flag saying "I do strict KEX."</p>`,
+      debug:'debug1: kex: algorithm: mlkem768x25519-sha256'},
+    {title:"The client's half",msg:{t:'KEX_ECDH_INIT · 1,216 bytes',dir:'c2s'},add:{client:[{id:'ceph',t:'ephemeral X25519 + ML-KEM private keys',s:'exist for this one exchange',k:'priv'}],wire:[{t:'client X25519 public + ML-KEM encapsulation key',s:'32 + 1,184 bytes',k:'pub'}]},
+      body:`<p>The client generates two throwaway key pairs, one X25519 and one ML-KEM-768, and sends both public halves in one message. These are the <strong>ephemeral</strong> keys from chapter 4. Your <code>id_ed25519</code> isn't involved.</p>`,
+      debug:'debug1: expecting SSH2_MSG_KEX_ECDH_REPLY'},
+    {title:'The server answers and signs',msg:{t:'KEX_ECDH_REPLY · host key, 1,120 bytes, signature',dir:'s2c'},add:{server:[{id:'seph',t:'ephemeral X25519 private key',k:'priv'},{t:'shared secret K',s:'SHA-256(K_mlkem ‖ K_x25519)',k:'sess'},{t:'exchange hash H',s:'the first H becomes the session ID',k:'sess'}],wire:[{t:'srv01 host public key',k:'pub'},{t:'server X25519 public + ML-KEM ciphertext',s:'32 + 1,088 bytes',k:'pub'},{t:'signature over H',s:'made with the host private key',k:'sig'}]},
+      body:`<p>The server makes its own ephemeral X25519 key, completes the X25519 exchange, and encapsulates a fresh random secret to the client's ML-KEM key. Hashing both results gives the shared secret <strong>K</strong>.</p><p>Then it computes the <strong>exchange hash H</strong>, a SHA-256 over everything said so far: both banners, both KEXINIT lists, its host public key, all the ephemeral values, and K. It signs H with its host private key and sends the lot. The first H of a connection is also its <strong>session ID</strong>, which comes back in step 9.</p>`,
+      debug:'debug1: SSH2_MSG_KEX_ECDH_REPLY received'},
+    {title:'The client checks the server',msg:null,add:{client:[{t:'shared secret K',k:'sess'},{t:'exchange hash H = session ID',k:'sess'},{t:'host key matches known_hosts:4',k:'ok'},{t:'signature on H verifies',k:'ok'}]},
+      body:`<p>The client runs its half: X25519 against the server's ephemeral public, decapsulates the ML-KEM ciphertext, hashes both into the same K, and rebuilds H. Then two checks. <strong>Is this host key the one in known_hosts?</strong> And <strong>does the signature on H verify under it?</strong></p><p>If both pass, the client knows it's talking to whoever holds srv01's host private key, and that nobody tampered with the negotiation, because the algorithm lists are inside H and H is signed.</p><p class="muted">On a first connection there's nothing in known_hosts to compare, so ssh shows you the fingerprint and asks. That prompt is the one moment an attacker in the middle can win. Flip the switch above to see what happens when the key doesn't match.</p>`,
+      debug:"debug1: Host 'srv01' is known and matches the ED25519 host key."},
+    {title:'NEWKEYS: encryption on',msg:{t:'SSH2_MSG_NEWKEYS',dir:'both'},wipe:['ceph','seph'],add:{client:[{t:'6 session keys',s:'IV, cipher key, MAC key × 2 directions',k:'sess'}],server:[{t:'6 session keys',s:'IV, cipher key, MAC key × 2 directions',k:'sess'}],wire:[{t:'from here on: ciphertext only',k:'cipher'}]},
+      body:`<p>Both sides feed K, H and the session ID through a hash to derive six values: an IV, an encryption key and an integrity key for each direction. They send NEWKEYS and switch on chacha20-poly1305. <strong>The ephemeral private keys are wiped</strong>, which is what makes forward secrecy real.</p><p>With strict KEX, packet sequence numbers reset here and any unexpected message during the exchange kills the connection. That closes the Terrapin hole.</p>`,
+      debug:'debug1: SSH2_MSG_NEWKEYS received'},
+    {title:'Which methods are allowed?',msg:{t:'ssh-userauth → methods: publickey',dir:'both',enc:true},add:{wire:[{t:'encrypted: service request, method list',k:'cipher'}],client:[{t:'server allows: publickey',k:'plain'}]},
+      body:`<p>Everything from here on is encrypted, so Eve's column only fills with ciphertext. The client asks for the user-authentication service and the server lists the methods it accepts. On a hardened box that list is just <code>publickey</code>.</p>`,
+      debug:'debug1: Authentications that can continue: publickey'},
+    {title:'Would you accept this key?',msg:{t:'USERAUTH_REQUEST (no signature) → PK_OK',dir:'both',enc:true},add:{wire:[{t:'encrypted: public key offer',k:'cipher'}],server:[{t:'your key is in authorized_keys',k:'ok'}]},
+      body:`<p>The client offers a public key <em>without signing anything yet</em>. The server looks for it in <code>authorized_keys</code> and answers PK_OK if it's there. That dry run is why a client with a pile of keys in its agent tries them one at a time, and why too many keys trips <code>MaxAuthTries</code> (default 6) with "Too many authentication failures". <code>IdentitiesOnly yes</code> plus an <code>IdentityFile</code> per host fixes that.</p>`,
+      debug:'debug1: Server accepts key: /Users/alice/.ssh/id_ed25519 ED25519 SHA256:31yXDd… explicit'},
+    {title:'The signature',msg:{t:'USERAUTH_REQUEST + signature → SUCCESS',dir:'c2s',enc:true},add:{client:[{t:'signature over session ID + request',s:'made with id_ed25519, or by ssh-agent',k:'sig'}],wire:[{t:'encrypted: your signature',k:'cipher'}],server:[{t:'signature verifies with your public key',k:'ok'},{t:'logged in as alice',k:'ok'}]},
+      body:`<p>Now the client signs a blob made of the <strong>session ID</strong>, the username, the service name and the public key, using your private key (or asks ssh-agent to do it). The server verifies it with the public key from <code>authorized_keys</code>.</p><p><strong>Your private key never crossed the wire.</strong> And the signature is worthless anywhere else, because it's bound to a session ID that exists only on this one connection.</p>`,
+      debug:'Authenticated to srv01 ([192.0.2.10]:22) using "publickey".'},
+    {title:'Shell',msg:{t:'CHANNEL_OPEN session → pty-req, shell',dir:'both',enc:true},add:{wire:[{t:'encrypted: every keystroke and byte of output',k:'cipher'}],client:[{t:'channel 0: interactive shell',k:'plain'}],server:[{t:'channel 0: bash for alice',k:'plain'}]},
+      body:`<p>The client opens a session channel and asks for a terminal and a shell. Port forwards, sftp and agent forwarding are just more channels multiplexed over this same encrypted connection. After a few gigabytes (<code>RekeyLimit</code>) the two sides quietly re-run the key exchange with fresh ephemeral keys.</p><p><strong>Eve's total haul:</strong> two banners, two algorithm lists, some public values, a host signature she can't reuse, and a pile of ciphertext.</p>`,
+      debug:'alice@srv01:~$'}
+  ];
+  const WARN=`@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+Someone could be eavesdropping on you right now (man-in-the-middle attack)!
+It is also possible that a host key has just been changed.
+The fingerprint for the ED25519 key sent by the remote host is
+SHA256:Rk0wZq9m1d7Wm8hX2yQpV4nLcJ3tS6uE5aB0fG1iK2o.
+Please contact your system administrator.
+Offending ED25519 key in /Users/alice/.ssh/known_hosts:4
+Host key for srv01 has changed and you have requested strict checking.
+Host key verification failed.`;
+  const MITM=NORMAL.slice(0,4).map((s,i)=>i===3?Object.assign({},s,{body:s.body+`<p class="t-adv">Mallory is sitting on the path. She lets your packets reach her instead of srv01, and she'll answer as if she were the server.</p>`}):s).concat([
+    {title:'Mallory answers instead',adv:true,msg:{t:"Mallory's KEX_ECDH_REPLY",dir:'s2c',adv:true},add:{wire:[{t:"Mallory's host public key",k:'adv'},{t:"Mallory's ephemeral values",k:'adv'},{t:'signature over H',s:"made with Mallory's key",k:'adv'}],server:[{t:'sees nothing of yours',s:'Mallory has her own, separate connection to srv01',k:'plain'}]},
+      body:`<p>Mallory can do a perfectly valid key exchange with you. What she can't do is sign H with <em>srv01's</em> host private key, because she doesn't have it. So she signs with her own key and sends her own host public key, hoping you won't notice.</p>`,
+      debug:'debug1: Server host key: ssh-ed25519 SHA256:Rk0wZq9m1d7Wm8hX2yQpV4nLcJ3tS6uE5aB0fG1iK2o'},
+    {title:'Caught at the host key check',adv:true,msg:null,add:{client:[{t:'host key does NOT match known_hosts:4',k:'bad'},{t:'connection aborted',k:'bad'}]},
+      body:`<p>The signature on H checks out, but only under Mallory's key, and that key isn't the one in known_hosts. ssh stops cold:</p><pre class="hs-warn">${WARN}</pre><p><strong>What if this were your first connection?</strong> You'd see a fingerprint prompt instead, and if you typed <code>yes</code> without checking, you'd be talking to Mallory. Even then, public key auth protects you in a way passwords can't: your signature covers <em>your</em> session ID, and Mallory's separate connection to the real srv01 has a different one. She can't relay your login. With a password you'd have typed it straight to her. And if you'd set <code>ForwardAgent yes</code>, she could use your agent while you stay connected.</p>`,
+      debug:'Host key verification failed.'}
+  ]);
+  const dotsEl=$('#hsDots'),pill=$('#hsPill'),lanes={client:$('#laneClient'),wire:$('#laneWire'),server:$('#laneServer')};
+  const mitmEl=$('#hsMitm');let idx=0;
+  const steps=()=>mitmEl.checked?MITM:NORMAL;
+  function renderDots(){dotsEl.textContent='';steps().forEach((s,i)=>{const li=document.createElement('li');const b=document.createElement('button');b.type='button';b.textContent=String(i);b.setAttribute('aria-label','Step '+i+': '+s.title);if(i===idx)b.setAttribute('aria-current','step');else if(i<idx)b.className='done';if(s.adv)b.classList.add('mitm');b.addEventListener('click',()=>go(i));li.appendChild(b);dotsEl.appendChild(li)})}
+  function movePill(s){
+    const track=pill.parentElement;const tw=track.clientWidth;
+    if(!s.msg){pill.style.opacity='0';return}
+    pill.style.opacity='1';pill.textContent=(s.msg.enc?'enc · ':'')+s.msg.t;
+    pill.className='hs-pill'+(s.msg.adv?' adv':'')+(s.msg.enc?' enc':'');
+    const pw=Math.min(pill.offsetWidth,tw);const end=Math.max(0,tw-pw);const mid=end/2;
+    let from,to;if(s.msg.dir==='c2s'){from=0;to=end}else if(s.msg.dir==='s2c'){from=end;to=0}else{from=mid;to=mid}
+    if(reduced()){pill.style.transition='none';pill.style.left=to+'px';return}
+    pill.style.transition='none';pill.style.left=from+'px';void pill.offsetWidth;pill.style.transition='';pill.style.left=to+'px';
+  }
+  function render(){
+    const S=steps();idx=Math.max(0,Math.min(idx,S.length-1));
+    const state={client:new Map(),wire:new Map(),server:new Map()};
+    S.slice(0,idx+1).forEach((s,j)=>{
+      for(const lane in s.add||{})s.add[lane].forEach((it,n)=>{const id=it.id||('s'+j+lane+n);state[lane].set(id,Object.assign({},it,{step:j,wiped:false}))});
+      (s.wipe||[]).forEach(id=>{for(const lane in state){const it=state[lane].get(id);if(it)it.wiped=true}});
+    });
+    for(const lane in lanes){
+      const ul=lanes[lane];ul.textContent='';
+      if(!state[lane].size){const li=document.createElement('li');li.className='empty';li.textContent=lane==='wire'?'nothing captured yet':'—';ul.appendChild(li);continue}
+      state[lane].forEach(it=>{const li=document.createElement('li');li.className='chip '+it.k+(it.step===idx&&idx>0?' new':'')+(it.wiped?' wiped':'');
+        const t=document.createElement('span');t.textContent=(it.k==='ok'?'✓ ':it.k==='bad'?'✗ ':'')+it.t+(it.wiped?' (wiped)':'');li.appendChild(t);
+        if(it.s){const sm=document.createElement('small');sm.textContent=it.s;li.appendChild(sm)}ul.appendChild(li)});
+    }
+    const s=S[idx];
+    $('#hsStepNo').textContent='Step '+idx+' of '+(S.length-1)+(mitmEl.checked?' · Mallory in the path':'');
+    $('#hsTitle').textContent=s.title;$('#hsBody').innerHTML=s.body;
+    const dbg=$('#hsDebug');dbg.textContent=s.debug||'';dbg.hidden=!s.debug;
+    $('#hsPrev').disabled=idx===0;$('#hsNext').disabled=idx===S.length-1;
+    renderDots();movePill(s);
+  }
+  function go(i){idx=i;render()}
+  $('#hsPrev').addEventListener('click',()=>go(idx-1));
+  $('#hsNext').addEventListener('click',()=>go(idx+1));
+  $('#hsReset').addEventListener('click',()=>go(0));
+  mitmEl.addEventListener('change',()=>{if(mitmEl.checked&&idx>5)idx=4;render()});
+  $('#hs').addEventListener('keydown',e=>{if(e.target.matches('input,select,textarea'))return;if(e.key==='ArrowRight'){e.preventDefault();go(Math.min(idx+1,steps().length-1))}else if(e.key==='ArrowLeft'){e.preventDefault();go(Math.max(0,idx-1))}});
+  render();onRedraw(()=>movePill(steps()[idx]));
+  return{go:i=>{if(mitmEl.checked&&i>5){mitmEl.checked=false}go(i)}};
+})();
+$$('#heroTerm a[data-step]').forEach(a=>a.addEventListener('click',()=>HS.go(+a.dataset.step)));
+
+/* ================= 06 · key decoder ================= */
+(function(){
+  const SAMPLES=[
+    ['Your Ed25519 key','ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINZxKi521ty8dK09olyIAt1s0yV7JJM64pBncP6Bo4k0 alice@laptop-202609'],
+    ["srv01's host key",'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFQXC0f44g4W0J940DnGKCYf33XamMpBcwijrIoAaNXF root@srv01'],
+    ['RSA 3072','ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7FqXb4zdOv7rnakIgoPFthSe7ugDIBa38lku+nnbb88Y5HqYzsIkiDZ9TaCc5DUaNmeuVRvPM8BB3oTzywDkWEWj6k452nlRnnajENsqODL5x9XWDwf7IpTElg2nKhZ/uP4ha8xy/oDYp4sPoe4BP8ETsTQyODc6kkN61twjMG6WyTJTljVmOZTcaopnEPoTLDiXFaJlt+f5d3vwf7NHmjuiiY/m5LcgIEOX69m5BE/1sYcSlX7HD4CtkuEdFgzbW0zHzh0bwn2iof5WsDAwnEbeiMBo6UbkP+EMJhz6OlIalnpKT1hX6gF4JTvqkuvPQTmoP/uLRwpyKjFgVS3VBTRbgA+bpdqw/xXHWMUrXT5nJlNt/n1qmlvmPZ5NZwT4kJzop65qwwSP+Mh6MqyH5gAxh5ynVmTMVhTDLUn3T/8VFOCzkP1KvBiVfV+T5UnrIc/NOuDQYJIAdqWvkqvViFCsuaCc1tKTGfcDxx0To1UVuc9fNj0W1hsrark+j4Ls= alice@oldbox-201804'],
+    ['ECDSA P-256','ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBdx/d0hY2jRj/g0nt3rzDbZO94bsPx6ucDEX66Pjkn2Fp/kPSVEZ6KK8IzN6KyM/MeICisffgU3akeSxNcG5Rg= alice@fips-jump'],
+    ['Ed25519-SK (constructed)','sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAINZxKi521ty8dK09olyIAt1s0yV7JJM64pBncP6Bo4k0AAAABHNzaDo= alice@yubikey-5c'],
+    ['authorized_keys line','restrict,from="192.0.2.20",command="/usr/local/bin/backup-receive" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFQXC0f44g4W0J940DnGKCYf33XamMpBcwijrIoAaNXF backup@srv01']
+  ];
+  const inEl=$('#kIn'),outEl=$('#kOut'),errEl=$('#kErr'),sampEl=$('#kSamples');
+  SAMPLES.forEach(([n,v],i)=>{const b=document.createElement('button');b.type='button';b.className='btn small';b.textContent=n;b.addEventListener('click',()=>{inEl.value=v;run()});sampEl.appendChild(b)});
+  function sha256(bytes){const K=new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+    const H=new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+    const l=bytes.length,padLen=((l+9+63)>>6)<<6,m=new Uint8Array(padLen);m.set(bytes);m[l]=0x80;const bits=l*8;const dv=new DataView(m.buffer);dv.setUint32(padLen-4,bits>>>0);dv.setUint32(padLen-8,Math.floor(bits/4294967296));
+    const w=new Uint32Array(64);const r=(x,n)=>(x>>>n)|(x<<(32-n));
+    for(let o=0;o<padLen;o+=64){for(let i=0;i<16;i++)w[i]=dv.getUint32(o+i*4);for(let i=16;i<64;i++){const s0=r(w[i-15],7)^r(w[i-15],18)^(w[i-15]>>>3),s1=r(w[i-2],17)^r(w[i-2],19)^(w[i-2]>>>10);w[i]=(w[i-16]+s0+w[i-7]+s1)>>>0}
+      let a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+      for(let i=0;i<64;i++){const S1=r(e,6)^r(e,11)^r(e,25),ch=(e&f)^(~e&g),t1=(h+S1+ch+K[i]+w[i])>>>0,S0=r(a,2)^r(a,13)^r(a,22),mj=(a&b)^(a&c)^(b&c),t2=(S0+mj)>>>0;h=g;g=f;f=e;e=(d+t1)>>>0;d=c;c=b;b=a;a=(t1+t2)>>>0}
+      H[0]+=a;H[1]+=b;H[2]+=c;H[3]+=d;H[4]+=e;H[5]+=f;H[6]+=g;H[7]+=h}
+    const out=new Uint8Array(32);const ov=new DataView(out.buffer);for(let i=0;i<8;i++)ov.setUint32(i*4,H[i]);return out}
+  const b64dec=s=>{const bin=atob(s);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u};
+  const b64enc=u=>{let s='';for(let i=0;i<u.length;i++)s+=String.fromCharCode(u[i]);return btoa(s)};
+  const hex=u=>Array.from(u,b=>b.toString(16).padStart(2,'0')).join(' ');
+  const txt=u=>new TextDecoder().decode(u);
+  function fields(u){const f=[];let o=0;while(o<u.length){if(o+4>u.length)throw new Error('The blob ends in the middle of a length prefix at byte '+o+'. It was probably truncated when copying.');const len=((u[o]<<24)|(u[o+1]<<16)|(u[o+2]<<8)|u[o+3])>>>0;if(o+4+len>u.length)throw new Error('The field at byte '+o+' says it is '+fmt(len)+' bytes long, but only '+fmt(u.length-o-4)+' remain. Check that the whole key was pasted.');f.push({off:o,len,data:u.slice(o+4,o+4+len)});o+=4+len}return f}
+  function bitsOf(u){let i=0;while(i<u.length&&u[i]===0)i++;if(i===u.length)return 0;let bits=(u.length-i)*8,t=u[i];while(!(t&0x80)){bits--;t<<=1}return bits}
+  function bigDec(u){let n=0n;for(const b of u)n=(n<<8n)|BigInt(b);return n}
+  function randomart(dgst,title){const W=17,H=9,aug=' .o+=*BOX@%&#/^SE',len=aug.length-1;const F=Array.from({length:W},()=>new Array(H).fill(0));let x=8,y=4;
+    for(const byte of dgst){let input=byte;for(let b=0;b<4;b++){x+=(input&1)?1:-1;y+=(input&2)?1:-1;x=Math.max(0,Math.min(W-1,x));y=Math.max(0,Math.min(H-1,y));if(F[x][y]<len-2)F[x][y]++;input>>=2}}
+    F[8][4]=len-1;F[x][y]=len;
+    const border=t=>{if(t.length>W)t=t.slice(0,W);const p=Math.floor((W-t.length)/2);return'+'+'-'.repeat(p)+t+'-'.repeat(W-p-t.length)+'+'};
+    const rows=[border(title)];for(let yy=0;yy<H;yy++){let r='|';for(let xx=0;xx<W;xx++)r+=aug[Math.min(F[xx][yy],len)];rows.push(r+'|')}rows.push(border('[SHA256]'));return rows.join('\n')}
+  function parse(line){
+    line=line.split(/\r?\n/).map(s=>s.trim()).find(s=>s&&!s.startsWith('#'))||'';
+    if(!line)throw new Error('Paste a public key line, for example the contents of ~/.ssh/id_ed25519.pub.');
+    if(/PRIVATE KEY/.test(line))throw new Error('That looks like a private key. Never paste those anywhere. Use the .pub file instead.');
+    const m=line.match(/(?:^|\s)([A-Za-z0-9][A-Za-z0-9@.\-]*)\s+(AAAA[0-9A-Za-z+/]+={0,2})(?:\s+(.*))?$/);
+    if(!m)throw new Error('Couldn\'t find a "type AAAA…" pair. A public key line looks like: ssh-ed25519 AAAAC3Nza… comment');
+    const prefix=line.slice(0,m.index+(m[0].startsWith(' ')||m[0].startsWith('\t')?1:0)).trim();
+    let blob;try{blob=b64dec(m[2])}catch(e){throw new Error('The key blob isn\'t valid base64. Something got mangled in the copy.')}
+    return{lineType:m[1],b64:m[2],comment:m[3]||'',prefix,blob};
+  }
+  function run(){
+    errEl.hidden=true;outEl.textContent='';
+    let P;try{P=parse(inEl.value)}catch(e){errEl.textContent=e.message;errEl.hidden=false;return}
+    let F;try{F=fields(P.blob)}catch(e){
+      let first=null;try{first=fields(P.blob.slice(0,4+(((P.blob[0]<<24)|(P.blob[1]<<16)|(P.blob[2]<<8)|P.blob[3])>>>0)))[0]}catch(_){}
+      if(first&&/-cert-v01@openssh\.com$/.test(txt(first.data)))F=[first];
+      else{errEl.textContent=e.message;errEl.hidden=false;return}
+    }
+    const type=txt(F[0].data);const isCert=/-cert-v01@openssh\.com$/.test(type);
+    const L=[{n:'key type',v:type,c:'type'}];let short='',bits=0,about='';
+    const k=i=>F[i]||{data:new Uint8Array(0),len:0};
+    if(isCert){short=type.replace(/-cert-v01@openssh\.com$/,'').toUpperCase()+'-CERT';about='An OpenSSH certificate. Its fields include fixed-width integers that aren\'t length-prefixed, so only the type is decoded here.';F.slice(1).forEach(()=>{})}
+    else switch(type){
+      case'ssh-ed25519':short='ED25519';bits=256;L.push({n:'public key A',v:hex(k(1).data)+'  ('+k(1).len+' bytes)',c:'key'});about='Ed25519: one 32-byte compressed curve point. That\'s the entire public key.';break;
+      case'ssh-rsa':{short='RSA';bits=bitsOf(k(2).data);L.push({n:'public exponent e',v:bigDec(k(1).data).toString(),c:'key'});L.push({n:'modulus n',v:bits+'-bit integer, '+k(2).len+' bytes (leading 00 keeps it positive)',c:'key'});about='RSA: the exponent e (almost always 65537) and the modulus n. The two primes behind n are nowhere in here.';break}
+      case'ecdsa-sha2-nistp256':case'ecdsa-sha2-nistp384':case'ecdsa-sha2-nistp521':{short='ECDSA';bits={nistp256:256,nistp384:384,nistp521:521}[txt(k(1).data)]||0;L.push({n:'curve',v:txt(k(1).data),c:'meta'});L.push({n:'public point Q',v:'04 ‖ x ‖ y, uncompressed, '+k(2).len+' bytes',c:'key'});about='ECDSA: the curve name (again) and the public point Q. The leading 0x04 byte means "uncompressed": both x and y are stored.';break}
+      case'sk-ssh-ed25519@openssh.com':short='ED25519-SK';bits=256;L.push({n:'public key A',v:hex(k(1).data)+'  ('+k(1).len+' bytes)',c:'key'});L.push({n:'application',v:txt(k(2).data),c:'meta'});about='Security-key Ed25519: the same 32-byte key plus the FIDO application string (defaults to "ssh:"). This sample reuses the Ed25519 key bytes to show the format.';break;
+      case'sk-ecdsa-sha2-nistp256@openssh.com':short='ECDSA-SK';bits=256;L.push({n:'curve',v:txt(k(1).data),c:'meta'});L.push({n:'public point Q',v:k(2).len+' bytes',c:'key'});L.push({n:'application',v:txt(k(3).data),c:'meta'});about='Security-key ECDSA: curve, point, and the FIDO application string.';break;
+      case'ssh-dss':short='DSA';bits=bitsOf(k(1).data);['p','q','g','y'].forEach((nm,i)=>L.push({n:nm,v:k(i+1).len+' bytes',c:'key'}));about='DSA: removed from OpenSSH in 10.0. If this is in an authorized_keys file somewhere, it no longer works with a current client.';break;
+      default:short=type.replace(/@.*$/,'').replace(/^ssh-/,'').toUpperCase().slice(0,15);F.slice(1).forEach((f,i)=>L.push({n:'field '+(i+1),v:f.len+' bytes',c:'key'}));about='A type this decoder doesn\'t know in detail. The fields are shown generically.';
+    }
+    const kinds=L.map(l=>l.c);
+    // byte map
+    let bm='';F.forEach((f,i)=>{const cls=i===0?'b-type':(kinds[i]==='meta'?'b-meta':(isCert?'b-other':'b-key'));const lenB=Array.from(P.blob.slice(f.off,f.off+4),b=>b.toString(16).padStart(2,'0')).join(' ');
+      bm+=`<span class="b-len" title="length prefix: ${f.len}">${lenB}</span> <span class="${cls}" title="${esc((L[i]||{n:'field'}).n)}">${hex(f.data)}</span> `});
+    const lastEnd=F[F.length-1].off+4+F[F.length-1].len;if(lastEnd<P.blob.length)bm+=`<span class="b-other" title="certificate fields">${hex(P.blob.slice(lastEnd))}</span>`;
+    const dg=sha256(P.blob);const fp=isCert?'(ssh-keygen shows the fingerprint of the key inside the certificate; not computed here)':'SHA256:'+b64enc(dg).replace(/=+$/,'');
+    const title=bits&&('['+short+' '+bits+']').length<=17?'['+short+' '+bits+']':'['+short+']';
+    const art=randomart(dg,title);
+    const stableBytes=4+F[0].len,stableChars=Math.floor(stableBytes*8/6);
+    const warn=P.lineType!==type?`<p class="err">The line says "${esc(P.lineType)}" but the blob says "${esc(type)}". ssh would reject this.</p>`:'';
+    const pre=P.prefix?`<div><span class="fk">before the type</span><span class="fv">${esc(P.prefix)} <span class="muted">(authorized_keys options or known_hosts hostnames)</span></span></div>`:'';
+    outEl.innerHTML=warn+
+      `<div class="stat-row"><div class="stat"><span class="l">Type</span><span class="v">${esc(short||type)}${bits?' · '+bits:''}</span></div><div class="stat"><span class="l">Blob</span><span class="v">${fmt(P.blob.length)} bytes</span></div><div class="stat"><span class="l">Base64 length</span><span class="v">${fmt(P.b64.length)} chars</span></div><div class="stat"><span class="l">Comment</span><span class="v">${esc(P.comment||'(none)')}</span></div></div>`+
+      `<div class="fields">${pre}${L.map(l=>`<div><span class="fk">${esc(l.n)}</span><span class="fv">${esc(l.v)}</span></div>`).join('')}<div><span class="fk">fingerprint</span><span class="fv t-pub">${fp}</span></div></div>`+
+      `<p class="small muted">${esc(about)} The first ${stableBytes} bytes are the 4-byte length and the type name, and they always encode to the same ${stableChars} characters: <code>${esc(P.b64.slice(0,stableChars))}</code>. That's why every key of a given type starts the same way.</p>`+
+      `<div><div class="flabel" style="margin-bottom:6px">Raw bytes</div><div class="bytemap">${bm}</div><div class="bm-legend" style="margin-top:8px"><span><i style="background:var(--muted)"></i>length prefix</span><span><i style="background:var(--ink)"></i>type name</span><span><i style="background:var(--cyan)"></i>key material</span><span><i style="background:var(--lav)"></i>metadata</span></div></div>`+
+      (isCert?'':`<div class="art-grid"><pre class="randomart" aria-label="randomart">${esc(art)}</pre><div class="prose small"><p><strong>Randomart</strong> is the fingerprint drawn as a picture, because people notice a changed picture faster than a changed string. The algorithm is called <em>the drunken bishop</em>: a bishop starts in the middle of a 17×9 board (<code>S</code>) and reads the 32 fingerprint bytes two bits at a time. Each pair moves it one square diagonally (low bit: left/right, high bit: up/down), sliding along walls. Squares get a symbol for how often the bishop landed there, <code>. o + = * B O X @ % &amp; # / ^</code> in that order, and <code>E</code> marks where it stopped.</p><p class="muted">This output matches <code>ssh-keygen -lv</code> byte for byte for the sample keys.</p></div></div>`);
+  }
+  inEl.value=SAMPLES[0][1];inEl.addEventListener('input',run);run();
+})();
+
+/* ================= 07 · dumbbell charts ================= */
+function dumbbell(svg,groups,opt){
+  function draw(){
+    svg.textContent='';
+    const W=Math.max(300,Math.round(svg.parentElement.clientWidth-36));const narrow=W<600;
+    const labelW=narrow?0:220,valW=narrow?0:120,rowH=narrow?46:30,groupH=groupsHaveLabels()?28:4,top=6,axisH=28;
+    const plotL=labelW+12,plotR=W-valW-10;
+    const lg=Math.log10,lo=lg(opt.domain[0]),hi=lg(opt.domain[1]);const X=v=>plotL+(lg(v)-lo)/(hi-lo)*(plotR-plotL);
+    let rows=0,gs=0;groups.forEach(g=>{rows+=g.rows.length;if(g.label)gs++});
+    const H=top+rows*rowH+(groupsHaveLabels()?gs*groupH:0)+axisH;
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);svg.setAttribute('height',H);
+    const grid=css('--grid'),muted=css('--muted'),bg=css('--chart-bg'),line2=css('--line-2');
+    const cA=css(opt.series[0].color),cB=css(opt.series[1].color);
+    const bodyBottom=H-axisH;
+    opt.ticks.forEach(t=>{sv('line',{x1:X(t),x2:X(t),y1:top,y2:bodyBottom,stroke:grid,'stroke-width':1},svg);const tx=sv('text',{x:X(t),y:bodyBottom+18,'text-anchor':'middle'},svg);tx.textContent=opt.tickFmt(t)});
+    let y=top;
+    groups.forEach(g=>{
+      if(g.label){const gt=sv('text',{x:narrow?0:0,y:y+groupH-9,class:'grp'},svg);gt.textContent=g.label.toUpperCase();y+=groupH}
+      g.rows.forEach(r=>{
+        const cy=narrow?y+rowH-13:y+rowH/2;
+        const gEl=sv('g',{class:'hit',tabindex:'0'},svg);
+        sv('rect',{x:0,y:y,width:W,height:rowH,fill:'transparent',class:'rowbg'},gEl);
+        const nm=sv('text',{x:narrow?0:labelW,y:narrow?y+14:cy+4,class:'lbl','text-anchor':narrow?'start':'end'},gEl);nm.textContent=r[0];
+        const a=r[1],b=r[2];
+        sv('line',{x1:X(Math.min(a,b)),x2:X(Math.max(a,b)),y1:cy,y2:cy,stroke:line2,'stroke-width':2,'stroke-linecap':'round'},gEl);
+        sv('circle',{cx:X(a),cy,r:5.5,fill:cA,stroke:bg,'stroke-width':2,class:'dot-a'},gEl);
+        sv('circle',{cx:X(b),cy,r:5.5,fill:cB,stroke:bg,'stroke-width':2,class:'dot-b'},gEl);
+        if(!narrow){const vt=sv('text',{x:W-2,y:cy+4,'text-anchor':'end',class:'val'},gEl);vt.textContent=opt.valFmt(a)+' / '+opt.valFmt(b)}
+        const rowsTip=[{color:cA,value:opt.tipFmt(a),label:opt.series[0].label},{color:cB,value:opt.tipFmt(b),label:opt.series[1].label}];
+        gEl.addEventListener('pointerenter',e=>tipShow(e,r[0],rowsTip));gEl.addEventListener('pointermove',tipMove);gEl.addEventListener('pointerleave',tipHide);
+        gEl.addEventListener('focus',e=>tipShow(e,r[0],rowsTip));gEl.addEventListener('blur',tipHide);
+        y+=rowH;
+      });
+    });
+    if(!narrow){const h1=sv('text',{x:W-2,y:bodyBottom+18,'text-anchor':'end'},svg);h1.textContent=opt.valHead}
+  }
+  function groupsHaveLabels(){return groups.some(g=>g.label)}
+  draw();onRedraw(draw);
+}
+function fillTable(tbl,head,groups,f){tbl.innerHTML='<thead><tr>'+head.map((h,i)=>`<th${i?' class="num"':''}>${esc(h)}</th>`).join('')+'</tr></thead><tbody>'+groups.map(g=>g.rows.map(r=>`<tr><td>${esc(r[0])}</td><td class="num">${f(r[1])}</td><td class="num">${f(r[2])}</td></tr>`).join('')).join('')+'</tbody>'}
+(function(){
+  const SIZE=[
+    {label:'Classical · in OpenSSH',rows:[['Ed25519',32,64],['ECDSA P-256',65,64],['ECDSA P-384',97,96],['ECDSA P-521',133,132],['RSA-2048',256,256],['RSA-3072',384,384],['RSA-4096',512,512]]},
+    {label:'Post-quantum',rows:[['ML-DSA-44 + Ed25519',1344,2484],['ML-DSA-44',1312,2420],['ML-DSA-65',1952,3309],['ML-DSA-87',2592,4627],['FN-DSA-512 (draft)',897,666],['SLH-DSA-128s',32,7856],['SLH-DSA-128f',32,17088]]}];
+  const kb=v=>v>=1024?(v/1024).toFixed(v%1024?1:0).replace(/\.0$/,'')+' KB':v+' B';
+  dumbbell($('#sizeSvg'),SIZE,{domain:[16,32768],ticks:[16,64,256,1024,4096,16384],tickFmt:kb,valFmt:v=>fmt(v),valHead:'pub / sig (bytes)',tipFmt:v=>fmt(v)+' bytes',series:[{color:'--mark-cyan',label:'public key'},{color:'--mark-amber',label:'signature'}]});
+  fillTable($('#sizeTable'),['Algorithm','Public key (B)','Signature (B)'],SIZE,fmt);
+  const SPEED=[{rows:[['RSA-2048',2731,48505],['RSA-3072',1012,23397],['RSA-4096',500,12978],['ECDSA P-256',38341,12334],['ECDSA P-384',1266,1556],['ECDSA P-521',3645,1873],['Ed25519',23198,8627]]}];
+  const k=v=>v>=1000?(v/1000).toFixed(v>=10000?0:1).replace(/\.0$/,'')+'K':String(v);
+  dumbbell($('#speedSvg'),SPEED,{domain:[100,100000],ticks:[100,1000,10000,100000],tickFmt:v=>k(v)+'/s',valFmt:k,valHead:'sign / verify per s',tipFmt:v=>fmt(v)+' ops/s',series:[{color:'--mark-amber',label:'sign'},{color:'--mark-cyan',label:'verify'}]});
+  fillTable($('#speedTable'),['Algorithm','Sign / s','Verify / s'],SPEED,fmt);
+})();
+
+/* ================= 07 · security ladder ================= */
+(function(){
+  const R=[[80,1024,160,'DSA (ssh-dss), RSA-1024: retired',true],[112,2048,224,'RSA-2048'],[128,3072,256,'Ed25519, ECDSA P-256, RSA-3072'],[192,7680,384,'ECDSA P-384'],[256,15360,512,'ECDSA P-521']];
+  const max=15360;const el=$('#ladder');
+  let h=`<div class="ladder-row ladder-head"><span>Security</span><span>Key length needed · same scale for both</span></div>`;
+  R.forEach(([s,rsa,ecc,keys,old])=>{
+    const bar=(lab,v)=>`<div class="bar"><span>${lab}</span><span class="trk"><span class="fill" style="width:max(2px,${(v/max*100).toFixed(2)}%)"></span></span><span class="n">${fmt(v)} bit</span></div>`;
+    h+=`<div class="ladder-row"><span class="lvl">${s}<small>bits</small></span><div class="bars">${bar('RSA / DH',rsa)}${bar('ECC',ecc)}</div><span class="keys">${old?'<span class="pill p-dead">retired</span> ':''}${esc(keys)}</span></div>`;
+  });
+  h+=`<div class="ladder-row"><span class="lvl t-adv">0<small>quantum</small></span><span class="keys" style="grid-column:2">Against Shor's algorithm on a large quantum computer, every row above collapses. Longer keys don't buy meaningful time.</span></div>`;
+  el.innerHTML=h;
+})();
+
+/* ================= 08 · Mosca ================= */
+(function(){
+  const X=$('#mX'),Y=$('#mY'),Z=$('#mZ'),PQ=$('#mPQ'),viz=$('#mViz'),ver=$('#mVerdict');const MAX=45,NOW=2026;
+  const PRE=[['Homelab config push',1,2],['A password typed into sudo',3,2],['Customer call records',7,4],['Medical or legal records',25,5]];
+  PRE.forEach(([n,x,y])=>{const b=document.createElement('button');b.type='button';b.className='btn small';b.textContent=n;b.addEventListener('click',()=>{X.value=x;Y.value=y;draw()});$('#mPresets').appendChild(b)});
+  function draw(){
+    const x=+X.value,y=+Y.value,z=+Z.value,pq=PQ.checked;$('#mXo').textContent=x;$('#mYo').textContent=y;$('#mZo').textContent=z;
+    const pct=v=>(Math.min(v,MAX)/MAX*100).toFixed(2)+'%';
+    const yEff=pq?0:y,end=yEff+x;const exposed=!pq&&end>z;
+    let bar=`<div class="mtrack"><div class="mbar">`;
+    if(yEff>0)bar+=`<div class="mseg y" style="left:0;width:${pct(yEff)}">migrate</div>`;
+    bar+=`<div class="mseg x" style="left:${pct(yEff)};width:${pct(x)}">${x?'must stay secret':''}</div>`;
+    if(exposed)bar+=`<div class="mseg exposed" style="left:${pct(z)};width:${pct(end-z)}">exposed</div>`;
+    bar+=`</div><div class="mline" style="left:${pct(z)}"><span>${z>34?'break ~':'quantum break ~'}${NOW+z}</span></div></div>`;
+    viz.innerHTML=`${bar}<div class="mosca-axis"><span>${NOW}</span><span>${NOW+15}</span><span>${NOW+30}</span><span>${NOW+45}</span></div>`;
+    ver.className='mosca-verdict '+(exposed?'risk':'safe');
+    ver.textContent=pq?`Safe from store-now-decrypt-later: the key exchange is post-quantum, so a recording made today stays sealed after ${NOW+z}.`
+      :exposed?`At risk: traffic you're still sending in ${NOW+y} has to stay secret until ${NOW+end}, but a quantum computer could open recordings of it from ${NOW+z}. That's ${end-z} year${end-z===1?'':'s'} of exposure.`
+      :`Squeaks by: the last classical traffic needs to hold until ${NOW+end}, before the assumed break in ${NOW+z}. Your margin is ${z-end} year${z-end===1?'':'s'}, on a guess nobody can make precisely.`;
+  }
+  [X,Y,Z,PQ].forEach(e=>e.addEventListener('input',draw));draw();
+})();
+
+/* ================= 09 · key picker ================= */
+(function(){
+  const form=$('#pkForm'),out=$('#pkOut');
+  const val=n=>(form.querySelector(`input[name="${n}"]:checked`)||{}).value;
+  const block=(t,cmd)=>`<div><div class="code-label">${esc(t)}</div><div class="code"><pre>${cmd}</pre></div></div>`;
+  function draw(){
+    const where=val('pkWhere'),target=val('pkTarget'),tok=val('pkTok');
+    const dev=($('#pkDev').value.trim()||'device').replace(/[^A-Za-z0-9._-]/g,'-');
+    const cm=`alice@${dev}-${yyyymm}`;
+    $('#pkTargetsG').hidden=where==='hw';$('#pkTokenG').hidden=where!=='hw';
+    let name='',cmds=[],notes=[];
+    if(where==='hw'){
+      const ed=tok==='ed',pin=$('#pkPin').checked&&ed,res=$('#pkRes').checked&&ed;
+      const t=ed?'ed25519-sk':'ecdsa-sk',f=ed?'id_ed25519_sk':'id_ecdsa_sk';
+      name=ed?'Ed25519-SK':'ECDSA-SK';
+      cmds.push(block('Generate (touch the token when it blinks)',`ssh-keygen -t ${t}${res?' -O resident':''}${pin?' -O verify-required':''} -O application=ssh:${esc(dev)} \\\n  -C "${esc(cm)}" -f ~/.ssh/${f}`));
+      cmds.push(block('Install on a server',`ssh-copy-id -i ~/.ssh/${f}.pub alice@srv01`));
+      notes.push('The file ~/.ssh/'+f+' is a key handle. Without the token it does nothing.');
+      if(res)notes.push('On a new machine, plug the token in and run <code>ssh-keygen -K</code> to write the handle back out.');
+      if(!ed)notes.push('Old U2F-only tokens can\'t store resident keys or check a PIN, so those options are off.');
+      notes.push('Enroll a second token and add its public key everywhere too. One lost keychain shouldn\'t lock you out.');
+      notes.push('Check your client supports it: <code>ssh -Q key | grep sk-</code>. Some vendor builds ship without FIDO support.');
+    }else if(where==='auto'){
+      name='Ed25519, no passphrase, fenced in';
+      cmds.push(block('Generate on the machine that runs the job',`ssh-keygen -t ed25519 -N '' -C "backup@${esc(dev)}-${yyyymm}" -f ~/.ssh/backup_ed25519`));
+      cmds.push(block('Line for authorized_keys on the target',`restrict,from="192.0.2.20",command="/usr/local/bin/backup-receive" \\\n  ssh-ed25519 AAAA… backup@${esc(dev)}-${yyyymm}`));
+      notes.push('No passphrase is acceptable here because the options limit what a stolen key can do: one source address, one forced command, no shell or forwarding.');
+      notes.push('Give every job its own key so you can revoke one without breaking the rest.');
+    }else if(target==='rsa'){
+      name='RSA 4096, for legacy targets only';
+      cmds.push(block('Generate a separate key just for the old gear',`ssh-keygen -t rsa -b 4096 -a 100 -C "${esc(cm)}" -f ~/.ssh/id_rsa_legacy`));
+      cmds.push(block('~/.ssh/config',`Host old-switch\n    IdentityFile ~/.ssh/id_rsa_legacy\n    IdentitiesOnly yes\n    <span class="c"># only if it can't do rsa-sha2-256/512:</span>\n    PubkeyAcceptedAlgorithms +ssh-rsa\n    HostKeyAlgorithms +ssh-rsa`));
+      notes.push('Keep your Ed25519 key as the default everywhere else. This one is scoped to the hosts that need it.');
+      notes.push('Plan the replacement: gear that only speaks SHA-1 signatures usually has other overdue problems.');
+    }else if(target==='fips'){
+      name='ECDSA P-384';
+      cmds.push(block('Generate',`ssh-keygen -t ecdsa -b 384 -a 100 -C "${esc(cm)}" -f ~/.ssh/id_ecdsa_fips`));
+      cmds.push(block('Junos example',`set system login user alice authentication ssh-ecdsa "ecdsa-sha2-nistp384 AAAA… ${esc(cm)}"`));
+      notes.push('FIPS-mode Junos accepts ssh-ecdsa and ssh-rsa, not ssh-ed25519. P-256 is fine too; P-384 matches CNSA 1.0.');
+      notes.push('Point only the FIPS hosts at this key with an IdentityFile block.');
+    }else{
+      name='Ed25519';
+      cmds.push(block('Generate (set a passphrase when asked)',`ssh-keygen -t ed25519 -a 100 -C "${esc(cm)}" -f ~/.ssh/id_ed25519`));
+      cmds.push(block('Install and load',`ssh-copy-id -i ~/.ssh/id_ed25519.pub alice@srv01\nssh-add -t 8h ~/.ssh/id_ed25519`));
+      notes.push('<code>-a 100</code> sets 100 bcrypt rounds on the passphrase, about 6× the default of 16. Unlocking takes a moment longer; offline guessing takes a lot longer.');
+      notes.push('The comment names the device and month, so a stolen laptop is one obvious line to delete from authorized_keys.');
+    }
+    if($('#pkPQ').checked){
+      cmds.push(block('Experimental: post-quantum composite (OpenSSH 10.4+ on both ends)',`ssh-keygen -t mldsa44-ed25519 -C "alice@lab-${yyyymm}" -f ~/.ssh/id_mldsa44_ed25519\n<span class="c"># find the exact algorithm name to allow in sshd_config / ssh_config:</span>\nssh -Q PubkeyAcceptedAlgorithms | grep -i mldsa`));
+      notes.push('The composite key is off by default and still an individual Internet-Draft. Use it on a lab box, keep Ed25519 alongside it, and expect to regenerate if the format changes.');
+    }
+    out.innerHTML=`<span class="eyebrow">Recommended</span><h4>${esc(name)}</h4>${cmds.join('')}<ul>${notes.map(n=>`<li>${n}</li>`).join('')}</ul>`;
+  }
+  form.addEventListener('input',draw);form.addEventListener('change',draw);draw();
+})();
+
+/* ================= 10 · quiz ================= */
+(function(){
+  const Q=[
+    {q:'In SSH-2 public key login, what does your client do with its private key?',o:['Decrypts a random challenge the server encrypted with your public key','Signs data that includes this connection\'s session ID','Sends it to the server, protected by the session key','Uses it to derive the symmetric session key'],a:1,w:'SSH-2 authenticates with a signature (RFC 4252). The signed blob includes the session ID from the key exchange, which binds it to this one connection. The "decrypt a challenge" story describes SSH-1.'},
+    {q:'Your laptop is stolen next year and the thief extracts id_ed25519. They also have a packet capture of a session you ran today. What can they read from the capture?',o:['Everything, because the private key decrypts it','Only your commands, not the output','Nothing: the session keys came from ephemeral key exchange values that were wiped','Everything, unless the key had a passphrase'],a:2,w:'Forward secrecy. Your identity key only signs; the session key came from throwaway X25519/ML-KEM keys that no longer exist. The thief can impersonate you from now on, though, so remove the key from authorized_keys.'},
+    {q:'Which hard problem is RSA\'s trapdoor?',o:['Discrete logarithms on an elliptic curve','Factoring the product of two large primes','Finding a SHA-256 collision','Solving noisy linear equations over a lattice'],a:1,w:'RSA\'s private exponent can be computed by anyone who can factor n. Option A is ECDSA/Ed25519/X25519\'s problem, and option D (module learning-with-errors) is what ML-KEM and ML-DSA rely on.'},
+    {q:'RSA-3072 and Ed25519 both target about 128-bit security. Why is the Ed25519 public key 12 times smaller?',o:['Ed25519 compresses its key with SHA-512','The best attacks on elliptic curves are far weaker than the best factoring attacks, so less size is needed','Ed25519 trades security for speed','RSA public keys contain both primes'],a:1,w:'The number field sieve factors in sub-exponential time, so RSA needs huge moduli. The best generic attack on a good curve is Pollard\'s rho at about √(group size), so 256 bits gives ~128-bit security. 384 bytes / 32 bytes = 12.'},
+    {q:'First connection: "The authenticity of host \'srv01\' can\'t be established. ED25519 key fingerprint is SHA256:…". What should you do?',o:['Type yes; the key exchange already encrypted the connection','Compare the fingerprint with one obtained over a trusted path, like the server console, before typing yes','Type yes, then run ssh-keyscan to double-check','Delete known_hosts and retry'],a:1,w:'The connection is encrypted, but to whoever answered. The fingerprint check is what proves that\'s srv01. ssh-keyscan goes over the same untrusted network, so it can\'t verify anything.'},
+    {q:'Which signature algorithm has leaked private keys in real incidents when its per-signature random number was reused or biased?',o:['Ed25519','ECDSA','RSA with rsa-sha2-512','ML-DSA-44'],a:1,w:'ECDSA: the PS3 signing key (2010, a constant nonce) and PuTTY\'s P-521 bug (CVE-2024-31497, key recovery from about 60 signatures). Ed25519 derives its nonce deterministically from the key and message.'},
+    {q:'ssh to an old switch fails with "no matching host key type found. Their offer: ssh-rsa". What\'s going on?',o:['The switch\'s RSA key is too short','The switch can only make RSA signatures with SHA-1, which OpenSSH 8.8+ disables by default','RSA was removed in OpenSSH 10.0','The switch requires Ed25519'],a:1,w:'Key type vs. signature algorithm. RSA keys are fine; the SHA-1 signing mode called "ssh-rsa" is off by default. A per-host HostKeyAlgorithms +ssh-rsa is the stopgap; a firmware update is the fix.'},
+    {q:'Why does every Ed25519 public key start with AAAAC3NzaC1lZDI1NTE5?',o:['It\'s a version header OpenSSH adds','It\'s the base64 of a 4-byte length prefix plus the text "ssh-ed25519"','It\'s the curve\'s generator point','Coincidence of the base64 alphabet'],a:1,w:'The blob starts with 00 00 00 0b and then "ssh-ed25519". Those 15 fixed bytes always encode to the same 20 base64 characters. RSA keys all start with AAAAB3NzaC1yc2E for the same reason.'},
+    {q:'What does the hybrid design of mlkem768x25519-sha256 guarantee?',o:['It\'s twice as fast as X25519','If ML-KEM turns out to be broken, the connection is still at least as strong as plain X25519','It works with servers that only support RSA','A quantum computer can\'t break the X25519 part'],a:1,w:'K = SHA-256(K_mlkem ‖ K_x25519). An attacker needs both secrets. If ML-KEM falls to some future classical attack, as SIKE did in 2022, you still have X25519. If a quantum computer breaks X25519, you still have ML-KEM.'},
+    {q:'OpenSSH made post-quantum key exchange the default years before it shipped post-quantum signatures. Why was key exchange the priority?',o:['Signatures are already quantum-safe','Recorded traffic can be decrypted later if the key exchange falls; a forged signature can\'t log into a past session','Key exchange was easier to implement','NIST hasn\'t standardized any post-quantum signatures'],a:1,w:'Store now, decrypt later. Signatures only need to hold at the moment of login, so the deadline is "before a quantum computer exists." And D is false: FIPS 204 (ML-DSA) and 205 (SLH-DSA) were finalized in August 2024.'},
+    {q:'What does Grover\'s algorithm on a large quantum computer do to AES-256?',o:['Breaks it outright','Roughly halves its effective strength, to about 128 bits, which is still fine','Nothing at all','Breaks it only in CBC mode'],a:1,w:'Grover gives a square-root speedup on brute force. 2^256 becomes about 2^128 quantum operations, still far out of reach. Shor is the one that breaks public-key crypto.'},
+    {q:'You ssh through a bastion with ForwardAgent yes. What can root on the bastion do while you\'re connected?',o:['Copy your private key out of the agent','Ask your agent to sign logins, and reach anywhere your key works as you','Nothing, because the agent socket is encrypted','Only read your known_hosts'],a:1,w:'The agent never hands out the key, but it will sign whatever it\'s asked through the forwarded socket. Use ProxyJump (ssh -J) instead, and ssh-add -c or -h to limit what a forwarded agent will do.'},
+    {q:'With an ed25519-sk key on a YubiKey, what is the file ~/.ssh/id_ed25519_sk?',o:['The private key, encrypted with the token\'s PIN','A key handle that\'s useless without the physical token','Just a copy of the public key','A certificate signed by the token vendor'],a:1,w:'The private key lives in the token and never leaves it. The file tells the token which credential to use. With -O resident, you can regenerate the file on a new machine with ssh-keygen -K.'},
+    {q:'How does the client know nobody tampered with the algorithm negotiation (for example, deleting the strong options from KEXINIT)?',o:['TCP checksums','The server signs the exchange hash H, which covers both KEXINIT lists, the host key and the key exchange values','The client resends KEXINIT once encryption starts','It can\'t know'],a:1,w:'H is a hash over the entire negotiation, and the server signs it with its host key. Change anything and the signature fails. Terrapin found a gap at the edge of this (sequence numbers), closed by strict KEX in 9.6.'},
+    {q:'The client offers [mlkem768x25519, sntrup761x25519, curve25519]. The server supports [curve25519, sntrup761x25519]. Which key exchange is used?',o:['curve25519-sha256, the server\'s first choice','sntrup761x25519-sha512','mlkem768x25519-sha256','None; the connection fails'],a:1,w:'The winner is the first algorithm on the client\'s list that the server also supports. mlkem isn\'t on the server\'s list, so sntrup761 wins, and the connection is still post-quantum.'}
+  ];
+  const body=$('#qBody'),prog=$('#qProg'),score=$('#qScore'),box=$('#quiz');
+  let i=0,answers=new Array(Q.length).fill(null),active=false;
+  const right=()=>answers.reduce((s,a,k)=>s+(a===Q[k].a?1:0),0);
+  function top(){prog.innerHTML=Q.map((q,k)=>`<i class="${answers[k]==null?(k===i?'cur':''):(answers[k]===q.a?'right':'wrong')}"></i>`).join('');const done=answers.filter(a=>a!=null).length;score.textContent=`${right()} / ${done} correct`}
+  function render(){
+    top();
+    if(i>=Q.length){return result()}
+    const q=Q[i],ans=answers[i];
+    body.innerHTML=`<span class="qnum">Question ${i+1} of ${Q.length}</span><p class="qtext">${esc(q.q)}</p><div class="qopts">${q.o.map((o,k)=>{let c='';if(ans!=null){if(k===q.a)c='right';else if(k===ans)c='wrong'}return`<button type="button" class="qopt ${c}" data-k="${k}" ${ans!=null?'disabled':''}><span class="ltr">${'ABCD'[k]}</span><span>${esc(o)}</span></button>`}).join('')}</div>`+
+      (ans!=null?`<div class="qexplain"><b class="${ans===q.a?'v-right':'v-wrong'}">${ans===q.a?'Correct.':'Not quite. The answer is '+'ABCD'[q.a]+'.'}</b><span>${esc(q.w)}</span></div>`:'')+
+      `<div class="qnav"><button type="button" class="btn small" id="qBack" ${i===0?'disabled':''}>← Back</button><span class="qhint">keys 1–4 answer · Enter continues</span><button type="button" class="btn small primary" id="qNext" ${ans==null?'disabled':''}>${i===Q.length-1?'See results':'Next →'}</button></div>`;
+    $$('.qopt',body).forEach(b=>b.addEventListener('click',()=>choose(+b.dataset.k)));
+    $('#qBack').addEventListener('click',()=>{i--;render()});
+    $('#qNext').addEventListener('click',next);
+  }
+  function choose(k){if(answers[i]!=null)return;answers[i]=k;active=true;render();const n=$('#qNext');if(n)n.focus({preventScroll:true})}
+  function next(){if(answers[i]==null)return;i++;render();active=true;const f=$('.qopt',body)||$('#qRetry');if(f)f.focus({preventScroll:true})}
+  function result(){
+    const r=right(),pct=Math.round(r/Q.length*100);
+    const msg=pct===100?'Clean sweep. You can read that transcript cold.':pct>=80?'Solid. Revisit the ones you missed below.':pct>=60?'Good foundation. The misses below point at the chapters worth a second pass.':'Worth another pass through chapters 1, 4 and 5; the handshake ties it all together.';
+    body.innerHTML=`<div class="qresult"><span class="qnum">Result</span><span class="big">${r} / ${Q.length}</span><p>${esc(msg)}</p><ul class="qreview">${Q.map((q,k)=>`<li><span class="${answers[k]===q.a?'ok-text':'bad-text'}">${answers[k]===q.a?'✓':'✗'}</span><span>${esc(q.q)}</span></li>`).join('')}</ul><div><button type="button" class="btn primary" id="qRetry">Take it again</button></div></div>`;
+    $('#qRetry').addEventListener('click',()=>{i=0;answers=new Array(Q.length).fill(null);render();const f=$('.qopt',body);if(f)f.focus({preventScroll:true})});
+  }
+  document.addEventListener('keydown',e=>{
+    if(!box.contains(document.activeElement))return;
+    if(e.target.matches('input,textarea,select'))return;
+    if(i<Q.length&&/^[1-4]$/.test(e.key)&&answers[i]==null){e.preventDefault();choose(+e.key-1)}
+    else if(e.key==='Enter'&&i<Q.length&&answers[i]!=null&&!(document.activeElement&&document.activeElement.id==='qBack')){e.preventDefault();next()}
+  });
+  render();
+})();
+
+})();
+</script>
+</body>
+</html>
